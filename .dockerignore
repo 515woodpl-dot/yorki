@@ -1,0 +1,7 @@
+.git
+.next
+node_modules
+data
+.env
+totemic-inquiry-493511-b8-f8b03d4be4dc.json
+*.log

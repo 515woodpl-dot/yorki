@@ -1,0 +1,131 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * YORKI — Design System
+ * Navy #2F3650 · Steel #6A97C4 · Bronze #A6784A
+ */
+
+@layer base {
+  :root {
+    --font-sans: 'DM Sans';
+    --font-mono: 'DM Mono';
+
+    /* Light */
+    --background:            218 28% 94%;
+    --foreground:            226 37%  9%;
+    --card:                    0  0% 100%;
+    --card-foreground:       226 37%  9%;
+    --popover:                 0  0% 100%;
+    --popover-foreground:    226 37%  9%;
+    --primary:               222 41% 25%;
+    --primary-foreground:      0  0% 100%;
+    --secondary:             218 28% 94%;
+    --secondary-foreground:  222 33% 34%;
+    --muted:                 220 20% 90%;
+    --muted-foreground:      222 16% 52%;
+    --accent:                220 20% 90%;
+    --accent-foreground:     226 37%  9%;
+    --destructive:             0 72% 51%;
+    --destructive-foreground:  0  0% 100%;
+    --border:                220 18% 86%;
+    --input:                 220 16% 82%;
+    --ring:                  210 44% 59%;
+    --radius:                0.5rem;
+    --brand-primary:         222 41% 25%;
+    --brand-accent:           28 40% 47%;
+  }
+
+  .dark {
+    --background:            224 28% 8%;
+    --foreground:            220 20% 93%;
+    --card:                  224 30% 13%;
+    --card-foreground:       220 20% 93%;
+    --popover:               224 30% 13%;
+    --popover-foreground:    220 20% 93%;
+    --primary:               210 44% 59%;
+    --primary-foreground:      0  0% 100%;
+    --secondary:             222 28% 18%;
+    --secondary-foreground:  220 16% 78%;
+    --muted:                 222 28% 18%;
+    --muted-foreground:      222 20% 58%;
+    --accent:                222 28% 18%;
+    --accent-foreground:     220 20% 93%;
+    --destructive:             0 72% 51%;
+    --destructive-foreground:  0  0% 100%;
+    --border:                222 24% 20%;
+    --input:                 222 22% 24%;
+    --ring:                  210 44% 59%;
+    --brand-primary:         210 44% 59%;
+    --brand-accent:           28 40% 47%;
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  body { @apply bg-background text-foreground font-sans antialiased; font-feature-settings: "rlig" 1, "calt" 1; }
+  html { scroll-behavior: smooth; }
+  :focus-visible { @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background; }
+}
+
+/* ── Scrollbar ───────────────────────────────────────────────────────────────── */
+@layer components {
+  .board-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+  .board-scroll::-webkit-scrollbar { height: 5px; width: 5px; }
+  .board-scroll::-webkit-scrollbar-track { background: transparent; }
+  .board-scroll::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 99px; }
+}
+
+/* ── Priority badges ─────────────────────────────────────────────────────────── */
+@layer components {
+  .priority-low    { background-color: #F0F2F7; color: #4E5F8C; border: 1px solid #C8D0E0; font-weight: 600; }
+  .priority-normal { background-color: #EAF2FB; color: #1A64A8; border: 1px solid #90BBE8; font-weight: 600; }
+  .priority-high   { background-color: #FBF5ED; color: #8A5E35; border: 1px solid #D4AA74; font-weight: 600; }
+  .priority-urgent { background-color: #FFF0F1; color: #C01237; border: 1px solid #F8AABB; font-weight: 600; }
+
+  .dark .priority-low    { background-color: rgba(47,54,80,0.5);  color: #8896BA; border-color: rgba(176,186,209,0.2); }
+  .dark .priority-normal { background-color: rgba(12,68,124,0.3); color: #7DB4E8; border-color: rgba(106,151,196,0.3); }
+  .dark .priority-high   { background-color: rgba(74,48,32,0.45); color: #CDAA72; border-color: rgba(166,120,74,0.3); }
+  .dark .priority-urgent { background-color: rgba(90,10,30,0.45); color: #F28499; border-color: rgba(220,50,80,0.3); }
+}
+
+/* ── Priority top border (detail panel) ─────────────────────────────────────── */
+.priority-top-low    { border-top: 3px solid #B0BAD1; }
+.priority-top-normal { border-top: 3px solid #6A97C4; }
+.priority-top-high   { border-top: 3px solid #A6784A; }
+.priority-top-urgent { border-top: 3px solid #E11D48; }
+
+/* ── Animations ──────────────────────────────────────────────────────────────── */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes slide-in-right {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.95) translateY(-4px); }
+  to   { opacity: 1; transform: scale(1)    translateY(0); }
+}
+@keyframes card-appear {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0)   scale(1); }
+}
+
+.animate-in           { animation: fade-in 0.18s ease-out both; }
+@keyframes slide-up {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+.animate-slide-up {
+  animation: slide-up 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-slide-in-right { animation: slide-in-right 0.24s cubic-bezier(0.16,1,0.3,1) both; }
+.animate-scale-in     { animation: scale-in 0.15s cubic-bezier(0.16,1,0.3,1) both; }
+.animate-card-appear  { animation: card-appear 0.2s ease-out both; }

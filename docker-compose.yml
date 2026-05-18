@@ -1,0 +1,52 @@
+services:
+  yorki:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: yorki
+    restart: unless-stopped
+
+    ports:
+      - "127.0.0.1:3000:3000"   # Localhost only — nginx handles external traffic
+
+    environment:
+      NODE_ENV:                production
+      NEXT_PUBLIC_BASE_PATH:   /task
+      APP_URL:        ${APP_URL}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM:     ${EMAIL_FROM:-noreply@yorki.internal}
+
+    volumes:
+      # Persist SQLite DB and uploaded files outside the container
+      # Data survives container rebuilds, updates, and restarts
+      - yorki_data:/app/data
+      - yorki_uploads:/app/public/uploads
+
+    # Resource limits — adjust for your droplet size
+    # $6 DO droplet (1GB): use these limits
+    # $12 DO droplet (2GB): double them
+    mem_limit:      800m
+    memswap_limit:  800m
+    cpus:           '1.0'
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+    stop_grace_period: 15s
+
+    healthcheck:
+      test:         ["CMD", "wget", "-qO-", "http://localhost:3000/task/login"]
+      interval:     30s
+      timeout:      10s
+      start_period: 45s
+      retries:      3
+
+volumes:
+  yorki_data:
+    driver: local
+  yorki_uploads:
+    driver: local

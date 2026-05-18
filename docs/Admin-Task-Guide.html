@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Yorki Admin Guide</title>
+  <style>
+    :root {
+      --ink: #24324a;
+      --muted: #5b6b86;
+      --line: #d8e0ec;
+      --paper: #ffffff;
+      --accent: #6a97c4;
+      --accent-soft: #eef4fb;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #f4f7fb;
+      color: var(--ink);
+      font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    .page {
+      width: 820px;
+      margin: 32px auto;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      padding: 40px 48px;
+      box-shadow: 0 12px 30px rgba(36, 50, 74, 0.08);
+    }
+    h1, h2 { margin: 0 0 12px; line-height: 1.2; }
+    h1 { font-size: 30px; }
+    h2 {
+      margin-top: 28px;
+      font-size: 18px;
+      border-top: 1px solid var(--line);
+      padding-top: 20px;
+    }
+    p { margin: 0 0 10px; }
+    .lede {
+      color: var(--muted);
+      margin-bottom: 18px;
+    }
+    .note {
+      background: var(--accent-soft);
+      border: 1px solid #cfe0f2;
+      border-radius: 14px;
+      padding: 14px 16px;
+      margin: 16px 0;
+    }
+    ol, ul {
+      margin: 10px 0 0 22px;
+      padding: 0;
+    }
+    li { margin: 6px 0; }
+    .footer {
+      margin-top: 28px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    code {
+      background: #f2f5f9;
+      border: 1px solid #e1e7f0;
+      border-radius: 6px;
+      padding: 1px 6px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.95em;
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <h1>Yorki Admin Guide</h1>
+    <p class="lede">Quick guide for admins to create, assign, track, and close tasks inside Yorki.</p>
+
+    <div class="note">
+      <strong>Admin access:</strong> Admins can view all tasks, assign work, move cards between columns, archive tasks, and manage most day-to-day operations.
+    </div>
+
+    <h2>How To Submit A New Task</h2>
+    <ol>
+      <li>Open Yorki and sign in.</li>
+      <li>Go to <code>Submit</code>.</li>
+      <li>Fill in the task title.</li>
+      <li>Add a clear description with the work needed.</li>
+      <li>Choose the assignee if someone should own the task right away.</li>
+      <li>Set the priority: Low, Normal, High, or Urgent.</li>
+      <li>Add a due date if needed.</li>
+      <li>Add an address if the task is tied to a location.</li>
+      <li>Use the checklist if the job has multiple steps.</li>
+      <li>Check <code>Send this task to Google Calendar</code> only if it should also become a calendar event.</li>
+      <li>Attach files if needed.</li>
+      <li>Click <code>Submit</code>.</li>
+    </ol>
+
+    <h2>How To Manage A Task</h2>
+    <ol>
+      <li>Open the board from <code>Dashboard</code>.</li>
+      <li>Click a card to open the task detail panel.</li>
+      <li>Reassign the task from the <code>Assigned to</code> field if needed.</li>
+      <li>Edit description, due date, address, checklist, or calendar sync using <code>Edit details</code>.</li>
+      <li>Add comments for updates, instructions, or notes.</li>
+      <li>Move the task to another column or drag it on the board.</li>
+    </ol>
+
+    <h2>How To Complete, Reopen, Archive, Or Delete</h2>
+    <ul>
+      <li><strong>Mark Complete:</strong> Sends the task to the completed state.</li>
+      <li><strong>Reopen:</strong> Moves a completed task back to active work.</li>
+      <li><strong>Archive:</strong> Sends the task out of the active board and into Archive.</li>
+      <li><strong>Delete:</strong> Permanently removes the task. Use carefully.</li>
+    </ul>
+
+    <h2>Good Admin Habits</h2>
+    <ul>
+      <li>Always assign an owner when possible.</li>
+      <li>Use clear titles so cards are easy to scan on the board.</li>
+      <li>Only enable calendar sync when a real date and time matter.</li>
+      <li>Archive finished tasks instead of deleting them unless they are no longer needed.</li>
+    </ul>
+
+    <p class="footer">Yorki v2.0.1 · Quick internal guide for admins</p>
+  </main>
+</body>
+</html>
