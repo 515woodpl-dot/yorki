@@ -4,6 +4,10 @@ Internal task board with staff/admin roles, invitations, private attachments, op
 
 **Runtime:** Next.js 16, React 19, Node.js 24 LTS recommended (22+ required), SQLite through better-sqlite3. Current authentication uses SQLite sessions and HttpOnly cookies. The `supabase/` folder and older deployment guides are historical; they do not configure the current app.
 
+## Workspace
+
+The desktop sidebar links to My tasks, Team board, and a calendar agenda. Switch between board and list views, filter by assignee/priority/due date, or use the task totals to focus on overdue work. On phones the default is a task list with bottom navigation; the Board view retains your configured columns. All totals and views use the signed-in user’s authorized tasks.
+
 ## Local development
 
 ```bash

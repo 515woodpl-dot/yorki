@@ -11,7 +11,7 @@ export default async function ProtectedLayout({ children }: { children: React.Re
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <AppNav user={user} />
-      <main className="flex-1 flex flex-col pb-20 sm:pb-0">
+      <main className="min-w-0 flex-1 flex flex-col pb-20 lg:pb-0 lg:pl-56">
         {children}
       </main>
     </div>

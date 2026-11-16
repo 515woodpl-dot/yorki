@@ -13,7 +13,7 @@
     --font-mono: 'DM Mono';
 
     /* Light */
-    --background:            218 28% 94%;
+    --background:             40 20% 97%;
     --foreground:            226 37%  9%;
     --card:                    0  0% 100%;
     --card-foreground:       226 37%  9%;
@@ -24,12 +24,12 @@
     --secondary:             218 28% 94%;
     --secondary-foreground:  222 33% 34%;
     --muted:                 220 20% 90%;
-    --muted-foreground:      222 16% 52%;
+    --muted-foreground:      222 16% 44%;
     --accent:                220 20% 90%;
     --accent-foreground:     226 37%  9%;
     --destructive:             0 72% 51%;
     --destructive-foreground:  0  0% 100%;
-    --border:                220 18% 86%;
+    --border:                220 15% 89%;
     --input:                 220 16% 82%;
     --ring:                  210 44% 59%;
     --radius:                0.5rem;

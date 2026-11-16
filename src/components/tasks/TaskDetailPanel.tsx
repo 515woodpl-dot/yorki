@@ -498,6 +498,7 @@ export default function TaskDetailPanel({
             )}
             <button
               onClick={onClose}
+              aria-label="Close panel"
               className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
             >
               <X size={16} />

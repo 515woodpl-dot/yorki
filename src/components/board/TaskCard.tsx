@@ -2,151 +2,46 @@
 
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { MessageSquare, Paperclip, AlertCircle, Clock } from 'lucide-react'
-import { cn, getPriorityConfig, formatDate, isOverdue, isDueSoon, getUserDisplayName, isTaskAssignedToUser } from '@/lib/utils'
+import { MessageSquare, Paperclip, CalendarDays, CheckSquare, CheckCircle2, ArrowUpRight } from 'lucide-react'
+import { cn, getPriorityConfig, getUserDisplayName, isTaskAssignedToUser, getCurrentDateInAppTimeZone } from '@/lib/utils'
+import { taskIsOverdue, taskDueLabel, taskDay } from '@/lib/board-view'
 import type { TaskWithRelations, SessionUser } from '@/lib/types'
 import { Avatar } from '@/components/layout/AppNav'
-import LinkifiedText from '@/components/system/LinkifiedText'
 
 interface Props {
-  task:        TaskWithRelations
+  task: TaskWithRelations
   currentUser: SessionUser
   isDragging?: boolean
-  onClick?:    () => void
+  draggable?: boolean
+  onClick?: () => void
 }
 
-const priorityBorderColor: Record<string, string> = {
-  low:    '#B0BAD1',
-  normal: '#6A97C4',
-  high:   '#A6784A',
-  urgent: '#E11D48',
-}
-
-export default function TaskCard({ task, currentUser, isDragging = false, onClick }: Props) {
+export default function TaskCard({ task, currentUser, isDragging = false, draggable = true, onClick }: Props) {
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super_admin'
-  const canMoveTask = isAdmin || task.submitted_by === currentUser.id || isTaskAssignedToUser(task, currentUser.id)
-
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging: isSortableDragging } = useSortable({
-    id: task.id, disabled: !canMoveTask,
-  })
-
-  const style = {
-    transform:  CSS.Transform.toString(transform),
-    transition,
-    borderRightColor: priorityBorderColor[task.priority] ?? '#B0BAD1',
-  }
-
-  const priority  = getPriorityConfig(task.priority)
-  const overdue   = isOverdue(task.due_date, task.has_real_due_date)
-  const dueSoon   = isDueSoon(task.due_date, task.has_real_due_date)
-  const submitter = task.submitted_by_profile
-
+  const canMove = draggable && (isAdmin || task.submitted_by === currentUser.id || isTaskAssignedToUser(task, currentUser.id))
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging: sorting } = useSortable({ id: isDragging ? `overlay-${task.id}` : task.id, disabled: !canMove || isDragging })
+  const priority = getPriorityConfig(task.priority)
+  const today = getCurrentDateInAppTimeZone()
+  const completed = task.status === 'completed'
+  const overdue = taskIsOverdue(task, today)
   const assignees = task.assigned_to_profiles ?? (task.assigned_to_profile ? [task.assigned_to_profile] : [])
-  const handleCardClick = () => {
-    if (isSortableDragging || isDragging) return
-    onClick?.()
-  }
+  const checklist = Array.isArray(task.custom_fields?.checklist) ? task.custom_fields.checklist.filter(item => item && typeof item === 'object' && typeof item.label === 'string' && item.label.trim()) as { label: string; checked?: boolean }[] : []
+  const address = typeof task.custom_fields?.address === 'string' ? task.custom_fields.address : ''
+  const job = typeof task.custom_fields?.job_number === 'string' ? task.custom_fields.job_number : task.labels[0]
+  function open() { if (!sorting && !isDragging) onClick?.() }
 
-  return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      onClick={handleCardClick}
-      {...(canMoveTask ? attributes : {})}
-      {...(canMoveTask ? listeners  : {})}
-      className={cn(
-        'group relative bg-card rounded-2xl px-3.5 pt-3 pb-3',
-        'border border-border/70 border-r-[5px]',
-        canMoveTask ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer',
-        'select-none transition-all duration-200',
-        'hover:shadow-lg hover:shadow-black/8 hover:-translate-y-0.5 hover:border-border',
-        'dark:hover:shadow-black/25',
-        isSortableDragging && 'opacity-25 scale-95 shadow-none',
-        isDragging && 'shadow-2xl shadow-black/20 ring-2 ring-primary/30 rotate-1 scale-[1.03] opacity-95',
-      )}
-    >
-      <div className="space-y-2.5">
-
-        {/* Priority + flags row */}
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span className={cn('text-[10px] px-1.5 py-0.5 rounded-md tracking-wider uppercase', priority.bgClass)}>
-            {priority.label}
-          </span>
-          {overdue && (
-            <span className="flex items-center gap-0.5 text-[10px] font-semibold text-red-500 dark:text-red-400">
-              <AlertCircle size={9} strokeWidth={2.5} /> Overdue
-            </span>
-          )}
-          {dueSoon && !overdue && (
-            <span className="flex items-center gap-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
-              <Clock size={9} strokeWidth={2.5} /> Due soon
-            </span>
-          )}
-        </div>
-
-        {/* Title */}
-        <p className="text-[13px] font-semibold text-foreground leading-snug line-clamp-2 tracking-tight">
-          {task.title}
-        </p>
-
-        {/* Description */}
-        {task.description && (
-          <p className="text-[11px] text-muted-foreground/80 line-clamp-2 leading-relaxed">
-            <LinkifiedText text={task.description} stopPropagation />
-          </p>
-        )}
-
-        {/* Labels */}
-        {task.labels && task.labels.length > 0 && (
-          <div className="flex flex-wrap gap-1">
-            {task.labels.slice(0, 3).map(label => (
-              <span key={label} className="text-[10px] px-1.5 py-0.5 rounded-md bg-accent/80 text-muted-foreground font-medium tracking-wide">
-                {label}
-              </span>
-            ))}
-            {task.labels.length > 3 && (
-              <span className="text-[10px] text-muted-foreground/60">+{task.labels.length - 3}</span>
-            )}
-          </div>
-        )}
-
-        {/* Footer */}
-        <div className="flex items-center justify-between gap-2 pt-2 mt-0.5 border-t border-border/40">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <Avatar user={submitter} size="sm" />
-            <span className="text-[10px] text-muted-foreground/70 truncate font-medium">
-              {getUserDisplayName(submitter)}
-            </span>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            {task.due_date && task.has_real_due_date && (
-              <span className={cn('text-[10px] tabular-nums font-medium',
-                overdue ? 'text-red-500' : dueSoon ? 'text-amber-500' : 'text-muted-foreground/60')}>
-                {formatDate(task.due_date)}
-              </span>
-            )}
-            {task._comment_count > 0 && (
-              <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground/60">
-                <MessageSquare size={10} strokeWidth={1.8} />
-                {task._comment_count}
-              </span>
-            )}
-            {task._attachment_count > 0 && (
-              <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground/60">
-                <Paperclip size={10} strokeWidth={1.8} />
-                {task._attachment_count}
-              </span>
-            )}
-            {assignees.length > 0 && (
-              <div className="flex -space-x-1">
-                {assignees.slice(0, 3).map((assignee) => (
-                  <Avatar key={assignee.id} user={assignee} size="sm" />
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+  return <div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition }} {...(canMove ? attributes : {})} {...(canMove ? listeners : {})}
+    role="button" tabIndex={0} aria-label={`Open task: ${task.title}`} onClick={open}
+    onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); open() } }}
+    className={cn('group rounded-xl border border-border bg-card p-4 shadow-sm transition-shadow hover:border-primary/25 hover:shadow-md', canMove ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer', sorting && 'opacity-30', isDragging && 'rotate-1 shadow-xl ring-2 ring-primary/30')}>
+    <div className="mb-1 flex items-start justify-between gap-2"><h3 className="line-clamp-2 text-[14px] font-semibold leading-snug tracking-tight text-foreground">{task.title}</h3>{completed ? <CheckCircle2 size={18} className="shrink-0 text-emerald-600" /> : <ArrowUpRight size={16} className="shrink-0 text-muted-foreground/40 transition-colors group-hover:text-primary" />}</div>
+    {(job || address) && <p className="mb-3 line-clamp-1 text-xs leading-5 text-muted-foreground">{[job, address].filter(Boolean).join(' · ')}</p>}
+    {!job && !address && task.description && <p className="mb-3 line-clamp-2 text-xs leading-5 text-muted-foreground">{task.description}</p>}
+    <div className="my-3 flex flex-wrap gap-1.5"><span className={cn('rounded-md px-2 py-0.5 text-[10px] font-semibold', priority.bgClass)}>{priority.label}</span>{overdue && <span className="rounded-md bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900 dark:bg-amber-950 dark:text-amber-200">Overdue</span>}</div>
+    <div className="mb-3 flex min-h-6 items-center gap-2">{assignees.length ? <><Avatar user={assignees[0]} size="sm" /><span className="truncate text-xs font-medium">{getUserDisplayName(assignees[0])}</span>{assignees.length > 1 && <span className="text-xs text-muted-foreground">+{assignees.length - 1}</span>}</> : <span className="text-xs text-muted-foreground">Unassigned</span>}</div>
+    <div className={cn('mb-3 flex items-center gap-1.5 text-xs font-medium', completed ? 'text-emerald-700 dark:text-emerald-400' : overdue ? 'text-amber-700 dark:text-amber-400' : taskDay(task.due_date) === today && task.has_real_due_date ? 'text-blue-700 dark:text-blue-400' : 'text-muted-foreground')}>
+      {completed ? <CheckCircle2 size={14} /> : <CalendarDays size={14} />}<span>{completed ? 'Completed' : `${overdue ? 'Overdue · ' : ''}${taskDueLabel(task, today)}`}</span>
     </div>
-  )
+    <div className="flex items-center justify-between border-t border-border/60 pt-3 text-xs text-muted-foreground"><span className="flex items-center gap-1.5" title="Checklist completed">{checklist.length ? <><CheckSquare size={14} />{checklist.filter(item => item.checked).length}/{checklist.length}</> : <span className="text-[11px]">{task.column.name}</span>}</span><span className="flex items-center gap-3"><span className="flex items-center gap-1" title="Comments"><MessageSquare size={14} />{task._comment_count}</span><span className="flex items-center gap-1" title="Attachments"><Paperclip size={14} />{task._attachment_count}</span></span></div>
+  </div>
 }

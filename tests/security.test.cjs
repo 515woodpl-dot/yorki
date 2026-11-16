@@ -237,3 +237,16 @@ test('legacy migration copies attachments privately and preserves originals', ()
     assert.equal(db.prepare('SELECT storage_path FROM attachments').get().storage_path, row.storage_path)
   } finally { db.close(); fs.rmSync(dir, { recursive: true, force: true }) }
 })
+
+test('board dates respect business timezone and completed tasks are not overdue', () => {
+  const view = loadTs('src/lib/board-view.ts', { './utils': { APP_TIME_ZONE: 'America/Los_Angeles' } })
+  assert.equal(view.taskDay('2026-11-16'), '2026-11-16')
+  assert.equal(view.taskDay('2026-11-16T07:00:00Z'), '2026-11-15')
+  assert.equal(view.taskDay('invalid'), '')
+  const task = { status: 'pending', due_date: '2026-11-15', has_real_due_date: true }
+  assert.equal(view.taskIsOverdue(task, '2026-11-16'), true)
+  assert.equal(view.taskIsOverdue({ ...task, status: 'completed' }, '2026-11-16'), false)
+  assert.equal(view.taskIsOverdue({ ...task, has_real_due_date: false }, '2026-11-16'), false)
+  assert.equal(view.taskDueLabel({ ...task, due_date: '2026-11-16' }, '2026-11-16'), 'Today')
+  assert.equal(view.taskDueLabel({ ...task, due_date: '2026-11-17' }, '2026-11-16'), 'Tomorrow')
+})

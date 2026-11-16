@@ -23,12 +23,18 @@ HTTP redirects to HTTPS work. Inspected app responses included frame/content-typ
 
 ## Validation and limits
 
-- Ten focused regression tests cover invite permissions/races/revocation, profile redaction, private-cache bypass, persistent rate limits, staff/internal-note boundaries, preserved assignment/sharing, and a real SQLite WAL snapshot restored with private uploads.
+- Eleven focused regression tests cover invite permissions/races/revocation, profile redaction, private-cache bypass, persistent rate limits, staff/internal-note boundaries, preserved assignment/sharing, and a real SQLite WAL snapshot restored with private uploads.
 - Production build and TypeScript validation passed on Node 24. Lint passed with existing UI/compiler recommendation warnings; React Compiler is not enabled.
-- Headless Chromium smoke tests cover real admin login/users, anonymous redirects, mobile staff task visibility, internal-note isolation, deactivation, logout, and authenticated/private attachment and upload boundaries. Tests run against isolated local data, not production.
+- Headless Chromium smoke tests cover real admin login/users, anonymous redirects, mobile staff task visibility, working board/list/calendar views, search/priority filters, keyboard task opening, drag-and-drop persistence, internal-note isolation, deactivation, logout, and authenticated/private attachment and upload boundaries. Tests run against isolated local data, not production.
 - `npm audit --omit=dev`: **0 known vulnerabilities** with the prepared lockfile. Full audit retains **7 moderate development-tool advisories** through typescript-eslint/minimatch; no compatible upstream fix resolved those automatically at review time. An audit result is not a security guarantee.
 - Build warnings remain for an existing icon Edge runtime and dynamic calendar-credential tracing. No live email or Calendar credentials were available for integration testing.
 - Deployment scripts have shell syntax checks and backup/legacy-storage regression coverage. The real systemd unit, nginx/cache rules, Node upgrade, disk cleanup, scheduled off-host backups and full server rollback are not tested from this workspace. The staged script refuses unsupported layouts and insufficient space; it is not a substitute for host inspection.
 - SQLite remains a single-writer system. No concurrent-user capacity target has been measured. Confirm expected workload, run realistic load tests, monitor memory/disk and request latency, and rehearse an off-host restore before expanding usage.
 
 See [the Droplet procedure](DROPLET-UPDATE.md) for prerequisites and the console workflow. Older deployment documents are historical and should not be mixed with the current procedure.
+
+## Approved UI refresh
+
+Implemented the desktop sidebar, phone navigation, task totals derived from visible authorized data, assignee/priority/due filters, search and empty states, board/list/calendar agenda views, and personal task scope. Task cards display assignees, due/overdue state, checklist progress, and attachment/comment counts. The existing column configuration and task permissions are preserved. A real drag-and-drop regression found the prior sortable container IDs/hover mutation could lose a card; the new flow persists a move without mutating cards during hover.
+
+Screenshots were captured from the local production build using isolated stone-job sample data. They are not screenshots of production records. The UI refresh is prepared on the release branch and remains undeployed.
