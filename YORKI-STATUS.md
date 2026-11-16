@@ -35,6 +35,28 @@
 - Comments (public + internal admin notes)
 - Search/filter by title, description, submitter
 
+### Multi-user Collaboration
+Anyone with permission to move a card (admins, the card's submitter, its
+assignees) can work on it at the same time as others, without overwriting
+each other:
+- **Live board** — open boards update automatically (moves, edits, comments,
+  attachments, new/archived cards) via `/api/board/stream` (SSE). No refresh needed.
+- **Conflict protection** — every action says what the user saw; the server
+  checks it in the same SQLite transaction as the write:
+  - Moving a card is refused only if someone else moved / completed / archived it.
+  - Complete vs Archive (or any two status changes) — only the first succeeds;
+    the second person gets "*X updated this card … it is now completed*".
+  - Editing details sends only the changed fields. Different fields merge;
+    the same field is stopped, drafts are kept, and pressing Save again is a
+    deliberate overwrite.
+  - Delete is refused if the card changed at all since it was opened.
+- **Presence** — cards and the detail panel show who is viewing / editing.
+- **Staff** who can move a card can also Complete / Reopen it. Archive and
+  Delete stay admin-only.
+- Tasks have `version` + `updated_by` columns; `board_events` and
+  `task_presence` tables are created automatically on startup.
+- nginx: `/task/api/board/stream` needs `proxy_buffering off` (see `nginx/taskflow.conf`).
+
 ### File Attachments
 - Upload images and files via Submit form
 - Files saved to `public/uploads/<task_id>/`

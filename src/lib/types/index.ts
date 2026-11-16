@@ -107,6 +107,10 @@ export interface Task {
   watchers: string[]
   google_calendar_event_id: string | null
   custom_fields: Record<string, unknown>
+  /** Incremented on every user-visible change. Used for conflict detection. */
+  version: number
+  /** User who made the most recent change. */
+  updated_by: string | null
   created_at: string
   updated_at: string
   deleted_at: string | null
@@ -191,6 +195,8 @@ export interface Setting {
 // Used in UI — tasks with their related data already fetched
 
 export interface TaskWithRelations extends Task {
+  /** Who made the most recent change (for "changed by …" messages). */
+  updated_by_profile?: UserProfile | null
   submitted_by_profile: UserProfile
   assigned_to_profile: UserProfile | null
   assigned_to_profiles: UserProfile[]
@@ -268,8 +274,45 @@ export interface CreateCommentInput {
 // ─── Server Action Response Wrapper ──────────────────────────────────────────
 
 export type ActionResult<T = void> =
-  | { success: true;  data: T;      error?: never }
-  | { success: false; error: string; data?: never }
+  | { success: true;  data: T;      error?: never; code?: never }
+  | { success: false; error: string; data?: never; code?: 'conflict' | 'forbidden' | 'not_found' | 'error' }
+
+// ─── Multi-user collaboration ────────────────────────────────────────────────
+
+/**
+ * What the client believed about the card when the user started the action.
+ * The server rejects the action (code: 'conflict') if reality differs, instead
+ * of silently overwriting another person's work.
+ *
+ * - column_id / status: for moves and Complete / Archive / Reopen / Restore
+ * - fields: the values of the fields being edited, as the user saw them.
+ *   Edits to *other* fields by other people do not cause a conflict.
+ * - version: exact-match check (used for destructive actions such as delete)
+ */
+export interface TaskExpectation {
+  version?: number
+  column_id?: string
+  status?: TaskStatus
+  fields?: Partial<Pick<Task, 'title' | 'description' | 'due_date' | 'priority' | 'assigned_to'>> & {
+    assigned_user_ids?: string[]
+    custom_fields?: Record<string, unknown>
+  }
+}
+
+export type PresenceMode = 'viewing' | 'editing'
+
+export interface TaskPresence {
+  task_id: string
+  user_id: string
+  user_name: string
+  mode: PresenceMode
+}
+
+export interface BoardSnapshot {
+  columns: ColumnWithTasks[]
+  presence: TaskPresence[]
+  seq: number
+}
 
 // ─── Auth / Session ───────────────────────────────────────────────────────────
 

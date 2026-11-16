@@ -9,6 +9,7 @@ import {
   softDeleteComment,
   createActivityLog,
   getTaskById,
+  recordBoardEvent,
 } from '@/lib/local-data'
 import type { ActionResult, ActivityLogEntry, Comment, CommentWithAuthor } from '@/lib/types'
 import { isTaskAssignedToUser } from '@/lib/utils'
@@ -73,6 +74,7 @@ export async function addComment(
       action: 'comment_added',
       metadata: { is_internal: isInternal },
     })
+    recordBoardEvent({ boardId: task.board_id, taskId, actorId: user.id, type: 'comment_added' })
 
     revalidatePath('/dashboard')
     return { success: true, data: comment }
@@ -90,6 +92,7 @@ export async function deleteComment(commentId: string): Promise<ActionResult> {
       entity_type: 'comment', entity_id: commentId,
       action: 'comment_deleted', metadata: {},
     })
+    recordBoardEvent({ taskId: null, actorId: user.id, type: 'comment_deleted' })
 
     revalidatePath('/dashboard')
     return { success: true, data: undefined }

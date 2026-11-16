@@ -2,9 +2,9 @@
 
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { MessageSquare, Paperclip, AlertCircle, Clock } from 'lucide-react'
+import { MessageSquare, Paperclip, AlertCircle, Clock, Eye, PencilLine } from 'lucide-react'
 import { cn, getPriorityConfig, formatDate, isOverdue, isDueSoon, getUserDisplayName, isTaskAssignedToUser } from '@/lib/utils'
-import type { TaskWithRelations, SessionUser } from '@/lib/types'
+import type { TaskWithRelations, SessionUser, TaskPresence } from '@/lib/types'
 import { Avatar } from '@/components/layout/AppNav'
 import LinkifiedText from '@/components/system/LinkifiedText'
 
@@ -13,6 +13,8 @@ interface Props {
   currentUser: SessionUser
   isDragging?: boolean
   onClick?:    () => void
+  /** Other people who currently have this card open. */
+  presence?:   TaskPresence[]
 }
 
 const priorityBorderColor: Record<string, string> = {
@@ -22,7 +24,7 @@ const priorityBorderColor: Record<string, string> = {
   urgent: '#E11D48',
 }
 
-export default function TaskCard({ task, currentUser, isDragging = false, onClick }: Props) {
+export default function TaskCard({ task, currentUser, isDragging = false, onClick, presence = [] }: Props) {
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super_admin'
   const canMoveTask = isAdmin || task.submitted_by === currentUser.id || isTaskAssignedToUser(task, currentUser.id)
 
@@ -42,6 +44,14 @@ export default function TaskCard({ task, currentUser, isDragging = false, onClic
   const submitter = task.submitted_by_profile
 
   const assignees = task.assigned_to_profiles ?? (task.assigned_to_profile ? [task.assigned_to_profile] : [])
+  const editors   = presence.filter((entry) => entry.mode === 'editing')
+  const viewers   = presence.filter((entry) => entry.mode === 'viewing')
+  const presenceLabel = editors.length > 0
+    ? `${editors[0].user_name.split(' ')[0]}${editors.length > 1 ? ` +${editors.length - 1}` : ''} editing`
+    : viewers.length > 0
+      ? `${viewers[0].user_name.split(' ')[0]}${viewers.length > 1 ? ` +${viewers.length - 1}` : ''} viewing`
+      : null
+  const presenceTitle = presence.map((entry) => `${entry.user_name} is ${entry.mode}`).join('\n')
   const handleCardClick = () => {
     if (isSortableDragging || isDragging) return
     onClick?.()
@@ -80,6 +90,20 @@ export default function TaskCard({ task, currentUser, isDragging = false, onClic
           {dueSoon && !overdue && (
             <span className="flex items-center gap-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
               <Clock size={9} strokeWidth={2.5} /> Due soon
+            </span>
+          )}
+          {presenceLabel && (
+            <span
+              title={presenceTitle}
+              className={cn(
+                'ml-auto flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md',
+                editors.length > 0
+                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
+                  : 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300',
+              )}
+            >
+              {editors.length > 0 ? <PencilLine size={9} strokeWidth={2.5} /> : <Eye size={9} strokeWidth={2.5} />}
+              {presenceLabel}
             </span>
           )}
         </div>

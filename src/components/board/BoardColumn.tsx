@@ -3,16 +3,18 @@
 import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { cn } from '@/lib/utils'
-import type { ColumnWithTasks, TaskWithRelations, SessionUser } from '@/lib/types'
+import type { ColumnWithTasks, TaskWithRelations, SessionUser, TaskPresence } from '@/lib/types'
 import TaskCard from './TaskCard'
 
 interface Props {
   column:      ColumnWithTasks
   currentUser: SessionUser
   onTaskClick: (task: TaskWithRelations) => void
+  /** Other people's presence, keyed by task id. */
+  presenceByTask?: Map<string, TaskPresence[]>
 }
 
-export default function BoardColumn({ column, currentUser, onTaskClick }: Props) {
+export default function BoardColumn({ column, currentUser, onTaskClick, presenceByTask }: Props) {
   const { setNodeRef, isOver } = useDroppable({ id: column.id })
   const taskIds   = column.tasks.map(t => t.id)
   const taskCount = column.tasks.length
@@ -58,6 +60,7 @@ export default function BoardColumn({ column, currentUser, onTaskClick }: Props)
                 task={task}
                 currentUser={currentUser}
                 onClick={() => onTaskClick(task)}
+                presence={presenceByTask?.get(task.id)}
               />
             ))}
           </div>

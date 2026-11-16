@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useTransition } from 'react'
 import {
   X, CheckCircle2, Archive, Trash2, Lock, MessageSquare,
   Loader2, Send, User, Calendar, Flag, Tag, Clock, RotateCcw, Paperclip, MapPin, CheckSquare, Plus,
+  Eye, PencilLine, AlertTriangle,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn, getAssignedUserIds, getPriorityConfig, formatDateTime, formatRelativeDate, getUserDisplayName, isTaskAssignedToUser, normalizeAppAssetUrl } from '@/lib/utils'
@@ -12,7 +13,8 @@ import {
 } from '@/lib/actions/tasks'
 import { addComment, getTaskComments } from '@/lib/actions/activity'
 import { getStaffUsers } from '@/lib/actions/settings'
-import type { TaskWithRelations, CommentWithAuthor, SessionUser, Priority, Attachment, UserProfile, Column } from '@/lib/types'
+import type { ActionResult, TaskWithRelations, CommentWithAuthor, SessionUser, Priority, Attachment, UserProfile, Column, TaskExpectation, TaskPresence } from '@/lib/types'
+import { reportActionFailure, useTaskPresence } from '@/lib/live/client'
 import { Avatar } from '@/components/layout/AppNav'
 import LinkifiedText from '@/components/system/LinkifiedText'
 
@@ -26,6 +28,35 @@ interface Props {
   onUpdate:    (task: TaskWithRelations) => void
   onRemove:    (taskId: string) => void
   onMove:      (taskId: string, columnId: string) => Promise<void>
+  /** Other people who have this card open right now. */
+  presence?:   TaskPresence[]
+  /** Wraps a server write so live refreshes wait for it to finish. */
+  runWrite?:   <T>(write: () => Promise<T>) => Promise<T>
+  /** Pull the latest board state (used after a conflict). */
+  onRefresh?:  () => Promise<void>
+}
+
+/** The editable fields as they were when the user pressed Edit. */
+interface EditBase {
+  version: number
+  title: string
+  description: string | null
+  due_date: string | null
+  address: unknown
+  send_to_calendar: unknown
+  checklist: unknown
+}
+
+function captureEditBase(task: TaskWithRelations): EditBase {
+  return {
+    version: task.version,
+    title: task.title,
+    description: task.description,
+    due_date: task.due_date,
+    address: task.custom_fields?.address ?? null,
+    send_to_calendar: task.custom_fields?.send_to_calendar ?? null,
+    checklist: task.custom_fields?.checklist ?? null,
+  }
 }
 
 interface ChecklistItemDraft {
@@ -53,6 +84,7 @@ function getAssignableUserLabel(user: UserProfile) {
 
 export default function TaskDetailPanel({
   task, currentUser, columns, onClose, onUpdate, onRemove, onMove,
+  presence = [], runWrite = (write) => write(), onRefresh,
 }: Props) {
   const isAdmin      = currentUser.role === 'admin' || currentUser.role === 'super_admin'
   const isSuperAdmin = currentUser.role === 'admin' || currentUser.role === 'super_admin'
@@ -92,32 +124,52 @@ export default function TaskDetailPanel({
     setSelectedColumnId(task.column_id)
   }, [task.column_id])
 
-  useEffect(() => {
-    setTitleDraft(task.title)
-    setDescriptionDraft(task.description ?? '')
-    setAddressDraft(typeof task.custom_fields?.address === 'string' ? task.custom_fields.address : '')
-    setDueDateDraft(toDateTimeLocalValue(task.due_date))
-    setSendToCalendarDraft(task.custom_fields?.send_to_calendar === true)
-    setChecklistDraft(
-      Array.isArray(task.custom_fields?.checklist)
-        ? (task.custom_fields.checklist as ChecklistItemDraft[]).map((item) => ({
-            label: item.label ?? '',
-            checked: Boolean(item.checked),
-          }))
-        : [],
-    )
-    setIsEditingDetails(false)
-  }, [task.title, task.description, task.due_date, task.custom_fields, task.id])
+  // Snapshot of the editable fields when Edit was pressed. Saving sends these
+  // as the expectation, so only changes to the *same* fields by someone else
+  // block the save. null = use the card as currently shown.
+  const editBaseRef = useRef<EditBase | null>(null)
+  const [conflictNotice, setConflictNotice] = useState<string | null>(null)
 
-  // Load comments when panel opens
+  // Opening a different card always leaves edit mode.
+  useEffect(() => {
+    setIsEditingDetails(false)
+    setConflictNotice(null)
+    editBaseRef.current = null
+  }, [task.id])
+
+  // Keep drafts in sync with live updates — but never overwrite what the
+  // user is typing. While editing, a banner tells them the card changed.
+  useEffect(() => {
+    if (isEditingDetails) return
+    resetDetailDrafts()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [task.title, task.description, task.due_date, task.custom_fields, task.id, isEditingDetails])
+
+  useTaskPresence(task.id, isEditingDetails ? 'editing' : 'viewing')
+
+  // Load comments when the panel opens, and again when someone else comments.
+  const loadedCommentsForRef = useRef<string | null>(null)
   useEffect(() => {
     let cancelled = false
-    setLoadingComments(true)
+    const firstLoad = loadedCommentsForRef.current !== task.id
+    if (firstLoad) setLoadingComments(true)
     getTaskComments(task.id).then(data => {
-      if (!cancelled) { setComments(data); setLoadingComments(false) }
+      if (!cancelled) {
+        setComments(data)
+        setLoadingComments(false)
+        loadedCommentsForRef.current = task.id
+      }
     }).catch(() => setLoadingComments(false))
     return () => { cancelled = true }
-  }, [task.id])
+  }, [task.id, task._comment_count])
+
+  /** Common handling for a rejected action. */
+  async function handleFailure(result: Extract<ActionResult<unknown>, { success: false }>, fallback: string) {
+    reportActionFailure(result, fallback)
+    if (result.code === 'conflict') await onRefresh?.()
+  }
+
+  const stateExpectation: TaskExpectation = { column_id: task.column_id, status: task.status }
 
   // Load staff for assignment dropdown (admin only)
   useEffect(() => {
@@ -136,37 +188,37 @@ export default function TaskDetailPanel({
 
   async function handleComplete() {
     startTransition(async () => {
-      const result = await completeTask(task.id)
+      const result = await runWrite(() => completeTask(task.id, stateExpectation))
       if (result.success && result.data) {
         toast.success('Task marked as completed — notification sent')
         onUpdate({ ...task, ...result.data })
-      } else {
-        toast.error(result.error)
+      } else if (!result.success) {
+        await handleFailure(result, 'Failed to complete task')
       }
     })
   }
 
   async function handleArchive() {
     startTransition(async () => {
-      const result = await archiveTask(task.id)
+      const result = await runWrite(() => archiveTask(task.id, stateExpectation))
       if (result.success) {
         toast.success('Task archived')
         onRemove(task.id)
         onClose()
       } else {
-        toast.error(result.error)
+        await handleFailure(result, 'Failed to archive task')
       }
     })
   }
 
   async function handleReopen() {
     startTransition(async () => {
-      const result = await reopenTask(task.id)
+      const result = await runWrite(() => reopenTask(task.id, stateExpectation))
       if (result.success && result.data) {
         toast.success('Task reopened and moved back to Inbox')
         onUpdate({ ...task, ...result.data })
-      } else {
-        toast.error(result.error)
+      } else if (!result.success) {
+        await handleFailure(result, 'Failed to reopen task')
       }
     })
   }
@@ -178,20 +230,24 @@ export default function TaskDetailPanel({
       return
     }
     startTransition(async () => {
-      const result = await deleteTask(task.id)
+      // Deleting is irreversible: refuse if *anything* changed since you looked.
+      const result = await runWrite(() => deleteTask(task.id, { version: task.version }))
       if (result.success) {
         toast.success('Task permanently deleted')
         onRemove(task.id)
         onClose()
       } else {
-        toast.error(result.error)
+        await handleFailure(result, 'Failed to delete task')
       }
     })
   }
 
   async function handleAssign(selectedIds: string[]) {
     startTransition(async () => {
-      const result = await updateTask({ id: task.id, assigned_to: selectedIds })
+      const result = await runWrite(() => updateTask(
+        { id: task.id, assigned_to: selectedIds },
+        { fields: { assigned_user_ids: selectedAssigneeIds } },
+      ))
       if (result.success && result.data) {
         const assignedToProfiles = selectedIds
           .map((userId) => staffUsers.find((staffUser) => staffUser.id === userId) ?? null)
@@ -202,8 +258,8 @@ export default function TaskDetailPanel({
           assigned_to_profile: assignedToProfiles[0] ?? null,
           assigned_to_profiles: assignedToProfiles,
         })
-      } else {
-        toast.error(result.error)
+      } else if (!result.success) {
+        await handleFailure(result, 'Failed to update assignees')
       }
     })
   }
@@ -224,18 +280,21 @@ export default function TaskDetailPanel({
       itemIndex === index ? { ...item, checked: !item.checked } : item
     ))
 
-    const nextCustomFields = { ...task.custom_fields, checklist: nextChecklist }
     setIsSavingChecklist(true)
 
     try {
-      const result = await updateTask({ id: task.id, custom_fields: nextCustomFields })
+      // Send only the checklist; expect it unchanged since we rendered it.
+      const result = await runWrite(() => updateTask(
+        { id: task.id, custom_fields: { checklist: nextChecklist } },
+        { fields: { custom_fields: { checklist: task.custom_fields?.checklist ?? null } } },
+      ))
 
       if (result.success && result.data) {
-        onUpdate({ ...task, ...result.data, custom_fields: nextCustomFields })
+        onUpdate({ ...task, ...result.data })
         return
       }
 
-      toast.error(result.error)
+      if (!result.success) await handleFailure(result, 'Failed to update checklist')
     } catch {
       toast.error('Failed to update checklist')
     } finally {
@@ -245,11 +304,14 @@ export default function TaskDetailPanel({
 
   async function handlePriorityChange(priority: Priority) {
     startTransition(async () => {
-      const result = await updateTask({ id: task.id, priority })
+      const result = await runWrite(() => updateTask(
+        { id: task.id, priority },
+        { fields: { priority: task.priority } },
+      ))
       if (result.success) {
-        onUpdate({ ...task, priority })
+        onUpdate({ ...task, ...result.data, priority })
       } else {
-        toast.error(result.error)
+        await handleFailure(result, 'Failed to change priority')
       }
     })
   }
@@ -263,7 +325,8 @@ export default function TaskDetailPanel({
         setSelectedColumnId(columnId)
         toast.success('Task moved')
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : 'Failed to move task')
+        const alreadyReported = Boolean((error as { reported?: boolean } | null)?.reported)
+        if (!alreadyReported) toast.error(error instanceof Error ? error.message : 'Failed to move task')
         setSelectedColumnId(task.column_id)
       }
     })
@@ -343,7 +406,7 @@ export default function TaskDetailPanel({
   async function handleAddComment() {
     if (!commentBody.trim()) return
     startTransition(async () => {
-      const result = await addComment(task.id, commentBody.trim(), isInternal)
+      const result = await runWrite(() => addComment(task.id, commentBody.trim(), isInternal))
       if (result.success) {
         // Optimistically add to list
         const newComment: CommentWithAuthor = {
@@ -375,31 +438,67 @@ export default function TaskDetailPanel({
       .map((item) => ({ label: item.label.trim(), checked: item.checked }))
       .filter((item) => item.label)
 
-    const custom_fields = { ...task.custom_fields }
-    if (addressDraft.trim()) custom_fields.address = addressDraft.trim()
-    else delete custom_fields.address
+    // Send only what the user actually changed, and expect only those fields
+    // to be as they saw them. Someone else editing a *different* field (or
+    // assigning the card) never blocks this save. null removes a custom field.
+    const base = editBaseRef.current ?? captureEditBase(task)
+    const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
 
-    if (sendToCalendarDraft) custom_fields.send_to_calendar = true
-    else delete custom_fields.send_to_calendar
+    const next = {
+      title: titleDraft.trim(),
+      description: descriptionDraft.trim() || null,
+      due_date: fromDateTimeLocalValue(dueDateDraft),
+      address: addressDraft.trim() || null,
+      send_to_calendar: sendToCalendarDraft ? true : null,
+      checklist: trimmedChecklist.length > 0 ? trimmedChecklist : null,
+    }
 
-    if (trimmedChecklist.length > 0) custom_fields.checklist = trimmedChecklist
-    else delete custom_fields.checklist
+    const input: Parameters<typeof updateTask>[0] = { id: task.id }
+    const expectedFields: NonNullable<TaskExpectation['fields']> = {}
+    const custom_fields: Record<string, unknown> = {}
+    const expectedCustom: Record<string, unknown> = {}
+
+    if (!same(next.title, base.title)) { input.title = next.title; expectedFields.title = base.title }
+    if (!same(next.description, base.description)) { input.description = next.description ?? ''; expectedFields.description = base.description }
+    if (!same(next.due_date, base.due_date)) { input.due_date = next.due_date; expectedFields.due_date = base.due_date }
+    for (const key of ['address', 'send_to_calendar', 'checklist'] as const) {
+      if (!same(next[key], base[key])) { custom_fields[key] = next[key]; expectedCustom[key] = base[key] }
+    }
+    if (Object.keys(custom_fields).length > 0) {
+      input.custom_fields = custom_fields
+      expectedFields.custom_fields = expectedCustom
+    }
+
+    if (Object.keys(input).length === 1) {
+      // Nothing changed.
+      editBaseRef.current = null
+      setConflictNotice(null)
+      setIsEditingDetails(false)
+      return
+    }
 
     startTransition(async () => {
-      const result = await updateTask({
-        id: task.id,
-        title: titleDraft.trim(),
-        description: descriptionDraft.trim(),
-        due_date: fromDateTimeLocalValue(dueDateDraft),
-        custom_fields,
-      })
+      const result = await runWrite(() => updateTask(input, { fields: expectedFields }))
 
       if (result.success && result.data) {
-        onUpdate({ ...task, ...result.data, custom_fields })
+        onUpdate({ ...task, ...result.data })
+        editBaseRef.current = null
+        setConflictNotice(null)
         setIsEditingDetails(false)
         toast.success('Task details updated')
-      } else {
-        toast.error(result.error)
+      } else if (!result.success) {
+        if (result.code === 'conflict') {
+          // Keep the user's drafts. The card refreshes underneath; saving again
+          // is a deliberate choice to replace the other person's version.
+          editBaseRef.current = null
+          setConflictNotice(result.error.replace(
+            /Your change was not saved.*$/,
+            'Your edits are still here. Review the card, then press Save again to replace their version — or Cancel edit to keep theirs.',
+          ))
+          await onRefresh?.()
+        } else {
+          toast.error(result.error)
+        }
       }
     })
   }
@@ -429,11 +528,27 @@ export default function TaskDetailPanel({
   function toggleEditMode() {
     if (isEditingDetails) {
       resetDetailDrafts()
+      editBaseRef.current = null
+      setConflictNotice(null)
       setIsEditingDetails(false)
       return
     }
+    editBaseRef.current = captureEditBase(task)
     setIsEditingDetails(true)
   }
+
+  // Someone else saved this card while you're in edit mode.
+  const changedWhileEditing =
+    isEditingDetails &&
+    !conflictNotice &&
+    editBaseRef.current !== null &&
+    task.version !== editBaseRef.current.version &&
+    task.updated_by !== currentUser.id
+  const lastEditorName = task.updated_by_profile
+    ? getUserDisplayName(task.updated_by_profile)
+    : 'Someone else'
+  const otherEditors = presence.filter((entry) => entry.mode === 'editing')
+  const otherViewers = presence.filter((entry) => entry.mode === 'viewing')
 
   const priority = getPriorityConfig(task.priority)
 
@@ -504,6 +619,38 @@ export default function TaskDetailPanel({
             </button>
           </div>
         </div>
+        {(presence.length > 0 || changedWhileEditing || conflictNotice) && (
+          <div className="px-5 py-2.5 border-b border-border space-y-2 shrink-0 text-xs">
+            {presence.length > 0 && (
+              <div className="flex items-center gap-2 flex-wrap text-muted-foreground">
+                {otherEditors.length > 0 && (
+                  <span className="flex items-center gap-1 rounded-md bg-amber-100 px-2 py-1 font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+                    <PencilLine size={11} />
+                    {otherEditors.map((entry) => entry.user_name).join(', ')} {otherEditors.length === 1 ? 'is' : 'are'} editing
+                  </span>
+                )}
+                {otherViewers.length > 0 && (
+                  <span className="flex items-center gap-1 rounded-md bg-sky-100 px-2 py-1 font-medium text-sky-800 dark:bg-sky-900/40 dark:text-sky-300">
+                    <Eye size={11} />
+                    {otherViewers.map((entry) => entry.user_name).join(', ')} {otherViewers.length === 1 ? 'is' : 'are'} viewing
+                  </span>
+                )}
+              </div>
+            )}
+            {changedWhileEditing && (
+              <p className="flex items-start gap-1.5 rounded-md bg-amber-50 px-2.5 py-2 text-amber-900 dark:bg-amber-900/30 dark:text-amber-200">
+                <AlertTriangle size={13} className="mt-px shrink-0" />
+                {lastEditorName} just changed this card. If they edited the same fields as you, your save will be stopped so you can review first.
+              </p>
+            )}
+            {conflictNotice && (
+              <p className="flex items-start gap-1.5 rounded-md bg-amber-50 px-2.5 py-2 text-amber-900 dark:bg-amber-900/30 dark:text-amber-200">
+                <AlertTriangle size={13} className="mt-px shrink-0" />
+                {conflictNotice}
+              </p>
+            )}
+          </div>
+        )}
         <div className="flex-1 overflow-y-auto">
           <div className="p-5 border-b border-border space-y-3">
             <MetaRow icon={User} label="Submitted by">
@@ -912,14 +1059,16 @@ export default function TaskDetailPanel({
               </button>
             )}
 
-            <button
-              onClick={handleArchive}
-              disabled={isPending}
-              className="flex items-center gap-1.5 h-9 px-3 rounded-lg text-sm font-medium border border-border text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-50 transition-colors"
-            >
-              <Archive size={14} />
-              Archive
-            </button>
+            {isAdmin && (
+              <button
+                onClick={handleArchive}
+                disabled={isPending}
+                className="flex items-center gap-1.5 h-9 px-3 rounded-lg text-sm font-medium border border-border text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-50 transition-colors"
+              >
+                <Archive size={14} />
+                Archive
+              </button>
+            )}
 
             {isSuperAdmin && (
               <button

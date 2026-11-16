@@ -182,6 +182,35 @@ function migrate(db: Database.Database) {
 
   ensureColumn(db, 'tasks', 'google_calendar_event_id', 'TEXT')
 
+  // ─── Multi-user collaboration ──────────────────────────────────────────────
+  // version: bumped on every user-visible change; used for conflict detection.
+  // updated_by: who made the last change (shown in conflict messages).
+  ensureColumn(db, 'tasks', 'version', 'INTEGER NOT NULL DEFAULT 1')
+  ensureColumn(db, 'tasks', 'updated_by', 'TEXT')
+
+  db.exec(`
+    -- Append-only change feed. Open boards watch MAX(seq) to know when to refresh.
+    CREATE TABLE IF NOT EXISTS board_events (
+      seq        INTEGER PRIMARY KEY AUTOINCREMENT,
+      board_id   TEXT NOT NULL,
+      task_id    TEXT,
+      actor_id   TEXT,
+      type       TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_board_events_board ON board_events(board_id, seq);
+
+    -- Who has which card open right now (one row per browser tab).
+    CREATE TABLE IF NOT EXISTS task_presence (
+      client_id  TEXT PRIMARY KEY,
+      user_id    TEXT NOT NULL,
+      task_id    TEXT NOT NULL,
+      mode       TEXT NOT NULL DEFAULT 'viewing',
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_task_presence_task ON task_presence(task_id);
+  `)
+
   // Seed if empty
   const boardCount = (db.prepare('SELECT COUNT(*) as n FROM boards').get() as { n: number }).n
   if (boardCount === 0) seedDb(db)
@@ -222,7 +251,10 @@ function seedDb(db: Database.Database) {
     USER2_ID,'Mia Porter','Mia','mia@yorki.local',null,'staff',null,1,null,now,now
   )
 
-  const insTask = db.prepare(`INSERT INTO tasks VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+  const insTask = db.prepare(`INSERT INTO tasks (id,board_id,column_id,title,description,status,priority,position,
+      submitted_by,assigned_to,due_date,has_real_due_date,completed_at,
+      labels,watchers,google_calendar_event_id,custom_fields,created_at,updated_at,deleted_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
   insTask.run('t-1',BOARD_ID,'c-inbox','Finalize Yorki board polish',
     'Tighten spacing, interaction feel, and visual hierarchy.',
     'new','high',1000,USER_ID,null,null,0,null,

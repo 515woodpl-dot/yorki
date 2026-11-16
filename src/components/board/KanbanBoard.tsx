@@ -20,9 +20,10 @@ import {
 import { arrayMove } from '@dnd-kit/sortable'
 import { toast } from 'sonner'
 import { Plus, Search, X } from 'lucide-react'
-import { moveTask } from '@/lib/actions/tasks'
+import { getBoardSnapshot, moveTask } from '@/lib/actions/tasks'
 import { cn, isTaskAssignedToUser } from '@/lib/utils'
-import type { ColumnWithTasks, TaskWithRelations, SessionUser } from '@/lib/types'
+import { reportActionFailure, useBoardStream } from '@/lib/live/client'
+import type { BoardSnapshot, ColumnWithTasks, TaskExpectation, TaskPresence, TaskWithRelations, SessionUser } from '@/lib/types'
 import BoardColumn from './BoardColumn'
 import TaskCard from './TaskCard'
 import TaskDetailPanel from '../tasks/TaskDetailPanel'
@@ -30,7 +31,9 @@ import TaskDetailPanel from '../tasks/TaskDetailPanel'
 interface Props {
   initialColumns: ColumnWithTasks[]
   currentUser:    SessionUser
+  initialSeq?:    number
 }
+
 
 function normalizeSearchValue(value: string) {
   const normalized = typeof value.normalize === 'function' ? value.normalize('NFKD') : value
@@ -113,7 +116,7 @@ function getTaskSearchScore(task: TaskWithRelations, normalizedQuery: string, to
   return score
 }
 
-export default function KanbanBoard({ initialColumns, currentUser }: Props) {
+export default function KanbanBoard({ initialColumns, currentUser, initialSeq = 0 }: Props) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [columns,      setColumns]      = useState<ColumnWithTasks[]>(initialColumns)
@@ -125,9 +128,92 @@ export default function KanbanBoard({ initialColumns, currentUser }: Props) {
   const deferredSearchQuery             = useDeferredValue(searchQuery)
   const [isPending,    startTransition] = useTransition()
 
+  const [presence, setPresence] = useState<TaskPresence[]>([])
+
   // columnsRef keeps drag handlers reading current state without stale closures
   const columnsRef = useRef(columns)
   columnsRef.current = columns
+
+  // ─── Live updates ─────────────────────────────────────────────────────────
+  // While the user is dragging or a save is in flight we hold incoming
+  // snapshots, so the board never jumps under their cursor; we refresh as
+  // soon as they're done.
+  const dragOriginRef     = useRef<{ taskId: string; column_id: string; status: TaskWithRelations['status'] } | null>(null)
+  const inFlightRef       = useRef(0)
+  const refreshQueuedRef  = useRef(false)
+  const refreshTimerRef   = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const lastSeqRef        = useRef(initialSeq)
+  const selectedIdRef     = useRef<string | null>(null)
+  selectedIdRef.current   = selectedTask?.id ?? null
+
+  const applySnapshot = useCallback((snapshot: BoardSnapshot) => {
+    if (snapshot.seq < lastSeqRef.current) return // older than what we already show
+    lastSeqRef.current = snapshot.seq
+    setColumns(snapshot.columns)
+    setPresence(snapshot.presence)
+
+    const openId = selectedIdRef.current
+    if (!openId) return
+    const fresh = snapshot.columns.flatMap((col) => col.tasks).find((task) => task.id === openId)
+    if (fresh) {
+      setSelectedTask(fresh)
+    } else {
+      setSelectedTask(null)
+      router.replace('/dashboard', { scroll: false })
+      toast.info('The card you had open was archived, deleted, or reassigned by someone else.', { duration: 7000 })
+    }
+  }, [router])
+
+  const refreshBoard = useCallback(async () => {
+    if (dragOriginRef.current || inFlightRef.current > 0) {
+      refreshQueuedRef.current = true
+      return
+    }
+    refreshQueuedRef.current = false
+    try {
+      const snapshot = await getBoardSnapshot()
+      // A drag or save may have started while we were fetching.
+      if (dragOriginRef.current || inFlightRef.current > 0) {
+        refreshQueuedRef.current = true
+        return
+      }
+      applySnapshot(snapshot)
+    } catch {
+      // Network blip: the stream will trigger another refresh.
+    }
+  }, [applySnapshot])
+
+  const scheduleRefresh = useCallback((delay = 200) => {
+    clearTimeout(refreshTimerRef.current)
+    refreshTimerRef.current = setTimeout(() => { void refreshBoard() }, delay)
+  }, [refreshBoard])
+
+  /** Run a server write; holds live refreshes until it finishes, then resyncs. */
+  const runWrite = useCallback(async <T,>(write: () => Promise<T>): Promise<T> => {
+    inFlightRef.current += 1
+    try {
+      return await write()
+    } finally {
+      inFlightRef.current -= 1
+      if (inFlightRef.current === 0) scheduleRefresh(0)
+    }
+  }, [scheduleRefresh])
+
+  useBoardStream(() => scheduleRefresh())
+
+  useEffect(() => () => clearTimeout(refreshTimerRef.current), [])
+
+  // Other people only; one entry per person per card ("editing" wins over "viewing").
+  const presenceByTask = new Map<string, TaskPresence[]>()
+  const byTaskAndUser = new Map<string, TaskPresence>()
+  for (const entry of presence) {
+    if (entry.user_id === currentUser.id) continue
+    const key = `${entry.task_id}:${entry.user_id}`
+    if (byTaskAndUser.get(key)?.mode !== 'editing') byTaskAndUser.set(key, entry)
+  }
+  for (const entry of Array.from(byTaskAndUser.values())) {
+    presenceByTask.set(entry.task_id, [...(presenceByTask.get(entry.task_id) ?? []), entry])
+  }
 
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super_admin'
 
@@ -217,8 +303,15 @@ export default function KanbanBoard({ initialColumns, currentUser }: Props) {
   // ─── Drag start ───────────────────────────────────────────────────────────
   function handleDragStart(event: DragStartEvent) {
     const task = findTask(event.active.id as string)
-    if (!canMoveTask(task)) return
+    if (!task || !canMoveTask(task)) return
+    dragOriginRef.current = { taskId: task.id, column_id: task.column_id, status: task.status }
     setActiveTask(task)
+  }
+
+  function handleDragCancel() {
+    dragOriginRef.current = null
+    setActiveTask(null)
+    if (refreshQueuedRef.current) scheduleRefresh(0)
   }
 
   // ─── Drag over (live column preview) ─────────────────────────────────────
@@ -271,7 +364,15 @@ export default function KanbanBoard({ initialColumns, currentUser }: Props) {
   // ─── Drag end (persist) ───────────────────────────────────────────────────
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event
-    if (!over) return
+    const origin = dragOriginRef.current
+    dragOriginRef.current = null
+    // Apply any updates that arrived mid-drag. If a save starts below, the
+    // refresh waits for it (runWrite) so the card doesn't flicker back.
+    if (refreshQueuedRef.current) scheduleRefresh(300)
+    if (!over) {
+      setActiveTask(null)
+      return
+    }
 
     const activeTaskId = active.id as string
     const overId       = over.id   as string
@@ -344,15 +445,20 @@ export default function KanbanBoard({ initialColumns, currentUser }: Props) {
       : nextTask           ? nextTask.position - 1000
       : 1000
 
+    // Only conflict if someone else moved / completed / archived this card
+    // since the drag started — edits to its text don't block a move.
+    const expected: TaskExpectation | undefined = origin && origin.taskId === activeTaskId
+      ? { column_id: origin.column_id, status: origin.status }
+      : undefined
+
     startTransition(async () => {
-      const result = await moveTask({
+      const result = await runWrite(() => moveTask({
         task_id:       activeTaskId,
         new_column_id: overColId,
         new_position:  newPosition,
-      })
+      }, expected))
       if (!result.success) {
-        toast.error('Failed to save card position.')
-        window.location.reload()
+        reportActionFailure(result, 'Failed to save card position.')
       }
     })
   }
@@ -406,6 +512,7 @@ export default function KanbanBoard({ initialColumns, currentUser }: Props) {
       throw new Error('Use the archive action to archive tasks.')
     }
 
+    const expected: TaskExpectation = { column_id: task.column_id, status: task.status }
     const lastTask = destinationCol.tasks[destinationCol.tasks.length - 1]
     const newPosition = lastTask ? lastTask.position + 1000 : 1000
 
@@ -456,18 +563,18 @@ export default function KanbanBoard({ initialColumns, currentUser }: Props) {
     }
     setSelectedTask(movedTask)
 
-    const result = await moveTask({
+    const result = await runWrite(() => moveTask({
       task_id: taskId,
       new_column_id: columnId,
       new_position: newPosition,
-    })
+    }, expected))
 
     if (!result.success) {
-      toast.error('Failed to move task.')
-      window.location.reload()
-      throw new Error(result.error)
+      reportActionFailure(result, 'Failed to move task.')
+      // Thrown so the panel resets its column picker; the toast already explains.
+      throw Object.assign(new Error(result.error), { reported: true })
     }
-  }, [])
+  }, [runWrite])
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -535,6 +642,7 @@ export default function KanbanBoard({ initialColumns, currentUser }: Props) {
           onDragStart={isMobile ? undefined : handleDragStart}
           onDragOver={isMobile ? undefined : handleDragOver}
           onDragEnd={isMobile ? undefined : handleDragEnd}
+          onDragCancel={isMobile ? undefined : handleDragCancel}
         >
           <div className="flex sm:hidden p-4 pb-20 h-full" style={{ minHeight: '100%' }}>
             {filteredColumns
@@ -545,6 +653,7 @@ export default function KanbanBoard({ initialColumns, currentUser }: Props) {
                 column={column}
                 currentUser={currentUser}
                 onTaskClick={handleTaskClick}
+                presenceByTask={presenceByTask}
               />
             ))}
           </div>
@@ -556,6 +665,7 @@ export default function KanbanBoard({ initialColumns, currentUser }: Props) {
                 column={column}
                 currentUser={currentUser}
                 onTaskClick={handleTaskClick}
+                presenceByTask={presenceByTask}
               />
             ))}
             {isAdmin && (
@@ -600,6 +710,9 @@ export default function KanbanBoard({ initialColumns, currentUser }: Props) {
           onUpdate={handleTaskUpdate}
           onRemove={handleTaskRemove}
           onMove={handleTaskMove}
+          presence={presenceByTask.get(selectedTask.id) ?? []}
+          runWrite={runWrite}
+          onRefresh={refreshBoard}
         />
       )}
     </div>
