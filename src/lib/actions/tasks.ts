@@ -30,6 +30,12 @@ import type {
   MoveTaskInput, SessionUser, Task, TaskExpectation, TaskStatus, TaskWithRelations, UpdateTaskInput,
 } from '@/lib/types'
 import { expectationGuard } from '@/lib/collab'
+import { notifyAssigned, notifyCompleted } from '@/lib/notifications'
+
+/** Notifications are best-effort: never fail the user's action because of them. */
+function safeNotify(fn: () => void) {
+  try { fn() } catch (err) { console.error('[Notifications] failed', err) }
+}
 import { sendTaskCompletedEmail, sendTaskSharedEmail, sendTaskSubmittedEmail } from './email'
 import { deleteGoogleCalendarEvent, upsertGoogleCalendarEvent } from '@/lib/integrations/google-calendar'
 import { getAssignedUserIds, isTaskAssignedToUser } from '@/lib/utils'
@@ -300,6 +306,7 @@ export async function createTask(input: CreateTaskInput): Promise<ActionResult<T
       metadata: { title: task.title, priority: task.priority },
     })
     notifyBoard(task, user.id, 'task_created')
+    safeNotify(() => notifyAssigned(task, assignedIds, user.id))
 
     revalidateBoard()
     revalidatePath(normalizePath('/submit'))
@@ -383,6 +390,9 @@ export async function moveTask(input: MoveTaskInput, expected?: TaskExpectation)
     })
 
     notifyBoard(moved, user.id, 'task_moved')
+    if (moved.status === 'completed' && before.status !== 'completed') {
+      safeNotify(() => notifyCompleted(moved, user.id))
+    }
     revalidateBoard()
     return { success: true, data: moved }
   } catch (err) {
@@ -432,7 +442,9 @@ export async function updateTask(input: UpdateTaskInput, expected?: TaskExpectat
 
     // Everything that depends on the current row is computed inside the write
     // transaction, so concurrent edits to *other* custom fields are preserved.
+    let previousAssigneeIds: string[] = []
     const task = await dbUpdateTask(input.id, (current) => {
+      previousAssigneeIds = getAssignedUserIds(current)
       const updates: Record<string, unknown> = {}
 
       if ('priority' in input) updates.priority = input.priority
@@ -519,6 +531,10 @@ export async function updateTask(input: UpdateTaskInput, expected?: TaskExpectat
       metadata: { fields_changed: requestedFields },
     })
     notifyBoard(task, user.id, 'task_updated')
+    if (assignedUsers) {
+      const added = assignedIds.filter((id) => !previousAssigneeIds.includes(id))
+      safeNotify(() => notifyAssigned(task, added, user.id))
+    }
 
     await syncTaskToGoogleCalendar(task)
     for (const recipientEmail of shareEmailRecipients) {
@@ -561,6 +577,7 @@ export async function completeTask(taskId: string, expected?: TaskExpectation): 
       metadata: { completed_by: user.full_name ?? user.email },
     })
     notifyBoard(updated, user.id, 'task_completed')
+    safeNotify(() => notifyCompleted(updated, user.id))
 
     await syncTaskToGoogleCalendar(updated)
     revalidateBoard()

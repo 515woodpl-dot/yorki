@@ -57,6 +57,20 @@ each other:
   `task_presence` tables are created automatically on startup.
 - nginx: `/task/api/board/stream` needs `proxy_buffering off` (see `nginx/taskflow.conf`).
 
+### @Mentions & Notifications
+- Type `@` in a comment to pick a person. Only people who can open the card
+  are offered; in an internal note, only admins. Mentions render as chips
+  (yours highlighted). Stored as `@[Name](userId)`; the server re-validates
+  every mention, fixes forged names, and drops mentions of people without access.
+- Bell (desktop header + mobile top bar) with unread count, live updates,
+  "Mark all as read", and a toast for new mentions / assignments.
+  Clicking a notification opens the card; opening a card marks its notifications read.
+- You're notified when: someone @mentions you · comments on a card you
+  submitted or are assigned to · assigns you · completes your card.
+  Never for your own actions; staff are never notified about internal notes.
+- Email for @mentions (Admin → Email → "@mentions", on by default) when
+  Resend or SMTP is configured. Other notifications are in-app only.
+
 ### File Attachments
 - Upload images and files via Submit form
 - Files saved to `public/uploads/<task_id>/`
@@ -131,12 +145,12 @@ each other:
 - [ ] Task labels management (create/delete labels)
 - [ ] Due date editing from detail panel
 - [ ] Task title/description editing inline from detail panel
-- [ ] Watchers — notify on comment/complete
+- [x] Notify on comment/complete (submitter + assignees; see Notifications)
 - [ ] Activity log view per task
 
 ### Notifications
-- [ ] In-app notifications (bell icon)
-- [ ] Email on comment (notify_on_comment setting exists but not wired)
+- [x] In-app notifications (bell icon) + @mentions
+- [ ] Email on every comment (the "Comment added" email toggle is still not wired; @mention emails are)
 
 ### Staff Experience
 - [ ] Staff dashboard — filtered view of only assigned tasks
@@ -144,8 +158,8 @@ each other:
 
 ### Backup
 - [ ] rclone Google Drive OAuth setup docs
-- [ ] Cron job setup verification
-- [ ] Backup restore script
+- [ ] Cron job setup verification (see docs/PRODUCTION-CHECKLIST.md)
+- [ ] Backup restore script (manual steps in docs/PRODUCTION-CHECKLIST.md)
 
 ### Misc
 - [ ] Custom fields (schema exists, UI not built)

@@ -17,9 +17,20 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
-DATA_DIR="$PROJECT_DIR/data"
-UPLOADS_DIR="$PROJECT_DIR/public/uploads"
+
+# Where the app keeps its data. Must match the app's YORKI_DB_DIR
+# (production uses /var/lib/yorki). Read from the environment, then .env.
+if [ -z "${YORKI_DB_DIR:-}" ] && [ -f "$PROJECT_DIR/.env" ]; then
+  YORKI_DB_DIR="$(grep -E '^YORKI_DB_DIR=' "$PROJECT_DIR/.env" | tail -1 | cut -d= -f2- | tr -d '"' || true)"
+fi
+DATA_DIR="${YORKI_DB_DIR:-$PROJECT_DIR/data}"
+# Attachments are stored privately next to the database (not in public/).
+UPLOADS_DIR="$DATA_DIR/uploads"
+LEGACY_UPLOADS_DIR="$PROJECT_DIR/public/uploads"
 BACKUP_DIR="$DATA_DIR/backups"
+
+command -v sqlite3 >/dev/null || { echo "  ✗ sqlite3 CLI not installed — cannot back up safely"; exit 1; }
+command -v rclone  >/dev/null || { echo "  ✗ rclone not installed — off-site copy impossible"; exit 1; }
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 REMOTE="gdrive:yorki-backups"
 LOG_DIR="$PROJECT_DIR/logs"
@@ -34,9 +45,16 @@ DB_BACKUP="$BACKUP_DIR/yorki_${TIMESTAMP}.db"
 
 if [ -f "$DB_SRC" ]; then
   sqlite3 "$DB_SRC" ".backup '$DB_BACKUP'"
-  echo "  ✓ Database backed up → $DB_BACKUP"
+  # A backup you can't open is not a backup.
+  CHECK="$(sqlite3 "$DB_BACKUP" 'PRAGMA integrity_check;')"
+  if [ "$CHECK" != "ok" ]; then
+    echo "  ✗ Backup failed integrity check: $CHECK"
+    exit 1
+  fi
+  echo "  ✓ Database backed up and verified → $DB_BACKUP"
 else
-  echo "  ✗ Database not found at $DB_SRC — skipping"
+  echo "  ✗ Database not found at $DB_SRC (set YORKI_DB_DIR)"
+  exit 1
 fi
 
 # ── 2. Sync uploads folder ────────────────────────────────────────────────────
@@ -48,6 +66,11 @@ if [ -d "$UPLOADS_DIR" ]; then
   echo "  ✓ Uploads synced → $REMOTE/uploads"
 else
   echo "  ~ No uploads folder yet — skipping"
+fi
+# Files uploaded by older versions lived under public/uploads.
+if [ -d "$LEGACY_UPLOADS_DIR" ]; then
+  rclone sync "$LEGACY_UPLOADS_DIR" "$REMOTE/uploads-legacy" --log-level INFO
+  echo "  ✓ Legacy uploads synced → $REMOTE/uploads-legacy"
 fi
 
 # ── 3. Upload the DB backup to Drive ─────────────────────────────────────────

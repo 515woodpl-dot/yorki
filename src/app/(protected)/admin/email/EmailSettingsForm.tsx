@@ -13,6 +13,7 @@ const events = [
   { key: 'notify_on_submit',   label: 'New task submitted',  desc: 'Email when a staff member submits a request' },
   { key: 'notify_on_complete', label: 'Task completed',       desc: 'Email when a task is marked as completed' },
   { key: 'notify_on_comment',  label: 'Comment added',        desc: 'Email when a comment is posted on a task' },
+  { key: 'notify_on_mention',  label: '@mentions',            desc: 'Email a person when someone @mentions them in a comment' },
 ] as const
 
 export default function EmailSettingsForm({ settings }: Props) {
@@ -25,6 +26,7 @@ export default function EmailSettingsForm({ settings }: Props) {
     notify_on_submit:   settings?.notify_on_submit   ?? true,
     notify_on_complete: settings?.notify_on_complete ?? true,
     notify_on_comment:  settings?.notify_on_comment  ?? false,
+    notify_on_mention:  settings?.notify_on_mention  ?? true,
   })
 
   function toggle(key: keyof typeof toggles) {

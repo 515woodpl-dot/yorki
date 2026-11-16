@@ -12,8 +12,10 @@ import {
   completeTask, archiveTask, deleteTask, reopenTask, updateTask, deleteTaskAttachment,
 } from '@/lib/actions/tasks'
 import { addComment, getTaskComments } from '@/lib/actions/activity'
+import { getMentionableUsers, markTaskSeen } from '@/lib/actions/notifications'
+import MentionTextarea, { CommentBody, encodeMentions } from './MentionTextarea'
 import { getStaffUsers } from '@/lib/actions/settings'
-import type { ActionResult, TaskWithRelations, CommentWithAuthor, SessionUser, Priority, Attachment, UserProfile, Column, TaskExpectation, TaskPresence } from '@/lib/types'
+import type { ActionResult, MentionableUser, TaskWithRelations, CommentWithAuthor, SessionUser, Priority, Attachment, UserProfile, Column, TaskExpectation, TaskPresence } from '@/lib/types'
 import { reportActionFailure, useTaskPresence } from '@/lib/live/client'
 import { Avatar } from '@/components/layout/AppNav'
 import LinkifiedText from '@/components/system/LinkifiedText'
@@ -99,6 +101,8 @@ export default function TaskDetailPanel({
   const [loadingComments, setLoadingComments] = useState(true)
   const [commentBody, setCommentBody] = useState('')
   const [isInternal,  setIsInternal]  = useState(false)
+  const [mentionCandidates, setMentionCandidates] = useState<MentionableUser[]>([])
+  const [mentionPicks, setMentionPicks] = useState<MentionableUser[]>([])
   const [isPending,   startTransition] = useTransition()
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [selectedColumnId, setSelectedColumnId] = useState(task.column_id)
@@ -160,8 +164,26 @@ export default function TaskDetailPanel({
         loadedCommentsForRef.current = task.id
       }
     }).catch(() => setLoadingComments(false))
+    // You're looking at the card, so its notifications (incl. new replies) are seen.
+    markTaskSeen(task.id).catch(() => {})
     return () => { cancelled = true }
   }, [task.id, task._comment_count])
+
+  // Who can be @mentioned here: people who can open this card.
+  const assigneeKey = getAssignedUserIds(task).join(',')
+  useEffect(() => { setMentionPicks([]) }, [task.id])
+  useEffect(() => {
+    let cancelled = false
+    getMentionableUsers(task.id)
+      .then((users) => { if (!cancelled) setMentionCandidates(users) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [task.id, assigneeKey])
+
+  // Internal notes are admin-only, so only admins can be mentioned in them.
+  const visibleMentionCandidates = isInternal
+    ? mentionCandidates.filter((user) => user.role !== 'staff')
+    : mentionCandidates
 
   /** Common handling for a rejected action. */
   async function handleFailure(result: Extract<ActionResult<unknown>, { success: false }>, fallback: string) {
@@ -406,7 +428,8 @@ export default function TaskDetailPanel({
   async function handleAddComment() {
     if (!commentBody.trim()) return
     startTransition(async () => {
-      const result = await runWrite(() => addComment(task.id, commentBody.trim(), isInternal))
+      const body = encodeMentions(commentBody.trim(), mentionPicks)
+      const result = await runWrite(() => addComment(task.id, body, isInternal))
       if (result.success) {
         // Optimistically add to list
         const newComment: CommentWithAuthor = {
@@ -426,6 +449,7 @@ export default function TaskDetailPanel({
         }
         setComments(prev => [...prev, newComment])
         setCommentBody('')
+        setMentionPicks([])
         onUpdate({ ...task, _comment_count: task._comment_count + 1 })
       } else {
         toast.error(result.error)
@@ -965,20 +989,19 @@ export default function TaskDetailPanel({
             ) : (
               <div className="space-y-4 mb-4">
                 {comments.map(comment => (
-                  <CommentItem key={comment.id} comment={comment} />
+                  <CommentItem key={comment.id} comment={comment} currentUserId={currentUser.id} />
                 ))}
               </div>
             )}
             <div className="space-y-2">
               <div className="relative">
-                <textarea
+                <MentionTextarea
                   value={commentBody}
-                  onChange={e => setCommentBody(e.target.value)}
-                  placeholder="Add a comment…"
-                  rows={3}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleAddComment()
-                  }}
+                  onChange={setCommentBody}
+                  candidates={visibleMentionCandidates}
+                  onPick={(user) => setMentionPicks((prev) => [...prev, user])}
+                  onSubmit={handleAddComment}
+                  placeholder="Add a comment… type @ to mention someone"
                   className={cn(
                     'w-full px-3 py-2.5 pr-10 rounded-xl border border-input',
                     'bg-background text-foreground text-sm resize-none',
@@ -1232,7 +1255,7 @@ function MetaRow({
   )
 }
 
-function CommentItem({ comment }: { comment: CommentWithAuthor }) {
+function CommentItem({ comment, currentUserId }: { comment: CommentWithAuthor; currentUserId: string }) {
   return (
     <div className={cn(
       'flex gap-3',
@@ -1260,7 +1283,7 @@ function CommentItem({ comment }: { comment: CommentWithAuthor }) {
             ? 'bg-amber-50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200 border border-amber-200 dark:border-amber-800'
             : 'bg-accent text-foreground'
         )}>
-          <p className="whitespace-pre-wrap break-words">{comment.body}</p>
+          <CommentBody body={comment.body} currentUserId={currentUserId} />
         </div>
       </div>
     </div>

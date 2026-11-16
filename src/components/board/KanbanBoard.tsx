@@ -27,6 +27,7 @@ import type { BoardSnapshot, ColumnWithTasks, TaskExpectation, TaskPresence, Tas
 import BoardColumn from './BoardColumn'
 import TaskCard from './TaskCard'
 import TaskDetailPanel from '../tasks/TaskDetailPanel'
+import { mentionsToPlainText } from '../tasks/MentionTextarea'
 
 interface Props {
   initialColumns: ColumnWithTasks[]
@@ -80,7 +81,7 @@ function getTaskSearchText(task: TaskWithRelations) {
     assigneeNames,
     task.labels.join(' '),
     stringifyCustomFields(task.custom_fields),
-    task.comments.map((comment) => comment.body).join(' '),
+    task.comments.map((comment) => mentionsToPlainText(comment.body)).join(' '),
     task.attachments.map((attachment) => attachment.file_name).join(' '),
   ].filter(Boolean).join(' '))
 }

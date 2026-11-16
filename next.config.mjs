@@ -8,13 +8,11 @@ const nextConfig = {
   ...(isProd ? { basePath: '/task' } : {}),
 
   // ─── Images ─────────────────────────────────────────────────────────
+  // The app doesn't use next/image. Turning the optimizer off removes the
+  // /_next/image endpoint (and its known DoS advisories) — previously it
+  // would fetch and resize images from ANY https host for anyone.
   images: {
-    remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: '**',
-      },
-    ],
+    unoptimized: true,
   },
 
   // ─── Security Headers ────────────────────────────────────────────────

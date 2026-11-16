@@ -209,6 +209,20 @@ function migrate(db: Database.Database) {
       updated_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_task_presence_task ON task_presence(task_id);
+
+    -- In-app notifications (bell). One row per recipient.
+    CREATE TABLE IF NOT EXISTS notifications (
+      id         TEXT PRIMARY KEY,
+      user_id    TEXT NOT NULL,
+      actor_id   TEXT,
+      task_id    TEXT,
+      comment_id TEXT,
+      type       TEXT NOT NULL,
+      snippet    TEXT,
+      created_at TEXT NOT NULL,
+      read_at    TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, created_at);
   `)
 
   // Seed if empty

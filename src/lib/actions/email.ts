@@ -1,4 +1,5 @@
-'use server'
+// Server-only helpers. Deliberately NOT 'use server': these must not be
+// callable from the browser (they send email with caller-supplied content).
 
 import nodemailer from 'nodemailer'
 import { Resend } from 'resend'
@@ -8,6 +9,16 @@ import { formatDateTime } from '@/lib/utils'
 
 let transporterPromise: Promise<nodemailer.Transporter> | null = null
 let resendClient: Resend | null = null
+
+/** Escape user-supplied text before putting it in an email's HTML. */
+function escapeHtml(value: string | null | undefined): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
 
 function cleanEnvValue(value: string | undefined | null) {
   return value?.replace(/\s+/g, '').trim() || undefined
@@ -201,10 +212,10 @@ function buildSubmittedHtml({ task, submitter, branding }: { task: Task; submitt
   <tr><td style="padding:32px;">
     <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:20px;margin-bottom:24px;">
       <span style="background:${pc};color:#fff;font-size:11px;padding:2px 8px;border-radius:4px;">${task.priority.toUpperCase()}</span>
-      <h2 style="margin:8px 0;color:#0f172a;font-size:18px;">${task.title}</h2>
-      ${task.description ? `<p style="margin:0;color:#64748b;font-size:14px;">${task.description}</p>` : ''}
+      <h2 style="margin:8px 0;color:#0f172a;font-size:18px;">${escapeHtml(task.title)}</h2>
+      ${task.description ? `<p style="margin:0;color:#64748b;font-size:14px;">${escapeHtml(task.description)}</p>` : ''}
     </div>
-    <p style="color:#475569;">Submitted by: <strong>${submitter.full_name ?? submitter.email}</strong></p>
+    <p style="color:#475569;">Submitted by: <strong>${escapeHtml(submitter.full_name ?? submitter.email)}</strong></p>
     <a href="${appUrl}/dashboard" style="display:inline-block;background:#1e293b;color:#f8fafc;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;">View on Board →</a>
   </td></tr>
   <tr><td style="background:#f8fafc;padding:16px 32px;border-top:1px solid #e2e8f0;">
@@ -226,9 +237,9 @@ function buildCompletedHtml({ task, completedBy, branding }: { task: Task; compl
   </td></tr>
   <tr><td style="padding:32px;">
     <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:20px;margin-bottom:24px;">
-      <h2 style="margin:0 0 8px;color:#0f172a;font-size:18px;">${task.title}</h2>
+      <h2 style="margin:0 0 8px;color:#0f172a;font-size:18px;">${escapeHtml(task.title)}</h2>
     </div>
-    <p style="color:#475569;">Completed by: <strong>${completedBy.full_name ?? completedBy.email}</strong> at ${completedAt}</p>
+    <p style="color:#475569;">Completed by: <strong>${escapeHtml(completedBy.full_name ?? completedBy.email)}</strong> at ${completedAt}</p>
     <a href="${appUrl}/dashboard" style="display:inline-block;background:#065f46;color:#ecfdf5;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;">View on Board →</a>
   </td></tr>
   <tr><td style="background:#f8fafc;padding:16px 32px;border-top:1px solid #e2e8f0;">
@@ -270,21 +281,21 @@ function buildSharedTaskHtml({
         <tr>
           <td style="padding:32px 34px;">
             <p style="margin:0 0 18px;font-size:15px;line-height:1.7;color:#4E5F8C;">
-              ${sender.full_name ?? sender.email} sent you a task update from ${appName}. Use the button below to view the latest details.
+              ${escapeHtml(sender.full_name ?? sender.email)} sent you a task update from ${appName}. Use the button below to view the latest details.
             </p>
 
             <div style="border:1px solid #E7DED2;border-radius:16px;padding:22px 22px 18px;background:#FCFAF7;">
               <div style="margin-bottom:14px;">
                 <span style="display:inline-block;background:${priorityColor};color:#ffffff;font-size:11px;font-weight:700;padding:5px 10px;border-radius:999px;text-transform:uppercase;letter-spacing:0.08em;">${task.priority}</span>
               </div>
-              <h2 style="margin:0 0 10px;font-size:22px;line-height:1.25;color:#1F2A44;">${task.title}</h2>
-              ${task.description ? `<p style="margin:0 0 16px;font-size:14px;line-height:1.7;color:#5C6E91;">${task.description.replace(/\n/g, '<br>')}</p>` : ''}
+              <h2 style="margin:0 0 10px;font-size:22px;line-height:1.25;color:#1F2A44;">${escapeHtml(task.title)}</h2>
+              ${task.description ? `<p style="margin:0 0 16px;font-size:14px;line-height:1.7;color:#5C6E91;">${escapeHtml(task.description).replace(/\n/g, '<br>')}</p>` : ''}
               <table width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;color:#5C6E91;">
                 <tr>
                   <td style="padding:0 0 10px;"><strong style="color:#2F3650;">Status:</strong> ${task.status.replace(/_/g, ' ')}</td>
                   <td style="padding:0 0 10px;"><strong style="color:#2F3650;">Due:</strong> ${dueDate}</td>
                 </tr>
-                ${address ? `<tr><td colspan="2" style="padding:0;"><strong style="color:#2F3650;">Address:</strong> ${address.replace(/\n/g, ', ')}</td></tr>` : ''}
+                ${address ? `<tr><td colspan="2" style="padding:0;"><strong style="color:#2F3650;">Address:</strong> ${escapeHtml(address).replace(/\n/g, ', ')}</td></tr>` : ''}
               </table>
             </div>
 
@@ -352,7 +363,7 @@ function buildInviteHtml({
         <!-- Body -->
         <tr>
           <td style="padding:36px 32px;">
-            <p style="margin:0 0 8px;color:#0F1220;font-size:16px;font-weight:600;">Hi ${fullName} 👋</p>
+            <p style="margin:0 0 8px;color:#0F1220;font-size:16px;font-weight:600;">Hi ${escapeHtml(fullName)} 👋</p>
             <p style="margin:0 0 24px;color:#4E5F8C;font-size:14px;line-height:1.7;">
               You've been added to <strong>${appName}</strong> as a <strong>${roleLabel}</strong>.
               Click the button below to set your password and access your workspace.
@@ -397,4 +408,42 @@ function buildInviteHtml({
   </table>
 </body>
 </html>`
+}
+
+export async function sendMentionEmail({ task, recipient, author, snippet }: {
+  task: Task
+  recipient: { email: string | null; full_name: string | null }
+  author: SessionUser
+  snippet: string
+}): Promise<void> {
+  try {
+    if (!recipient.email) return
+    const { email: cfg, branding } = await getEmailConfig()
+    if (cfg?.notify_on_mention === false) return
+
+    const appName = branding?.app_name ?? 'Yorki'
+    const appUrl = (process.env.APP_URL ?? 'http://localhost:3000').replace(/\/$/, '')
+    const taskUrl = `${appUrl}/dashboard?task=${encodeURIComponent(task.id)}`
+    const authorName = author.full_name ?? author.email
+    const sent = await sendEmail({
+      to: recipient.email,
+      subject: `${cfg?.subject_prefix ?? '[Yorki]'} ${authorName} mentioned you: ${task.title}`,
+      html: `<!DOCTYPE html><html><body style="margin:0;padding:0;font-family:Arial,sans-serif;background:#f4f4f5;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="padding:32px 16px;"><tr><td>
+  <table width="600" align="center" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:#fff;border-radius:12px;">
+  <tr><td style="background:#1e293b;padding:24px 32px;">
+    <p style="margin:0;color:#94a3b8;font-size:13px;">${escapeHtml(appName)}</p>
+    <h1 style="margin:4px 0 0;color:#f8fafc;font-size:20px;">${escapeHtml(authorName)} mentioned you</h1>
+  </td></tr>
+  <tr><td style="padding:32px;">
+    <p style="margin:0 0 8px;color:#475569;font-size:13px;">On <strong>${escapeHtml(task.title)}</strong></p>
+    <div style="background:#f8fafc;border-left:3px solid #6A97C4;border-radius:6px;padding:14px 16px;margin-bottom:24px;color:#0f172a;font-size:14px;white-space:pre-wrap;">${escapeHtml(snippet)}</div>
+    <a href="${escapeHtml(taskUrl)}" style="display:inline-block;background:#1e293b;color:#f8fafc;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;">Open the card →</a>
+  </td></tr>
+  </table></td></tr></table></body></html>`,
+    })
+    if (!sent) console.log(`[Email disabled] Mention for ${recipient.email} on "${task.title}"`)
+  } catch (err) {
+    console.error('[Email: mention]', err)
+  }
 }

@@ -1,0 +1,7 @@
+const Database = require('better-sqlite3')
+const db = new Database(process.argv[2])
+const now = new Date().toISOString(), exp = new Date(Date.now()+864e5).toISOString()
+db.prepare("INSERT OR IGNORE INTO users (id,full_name,display_name,email,role,is_active,created_at,updated_at) VALUES ('33333333-3333-3333-3333-333333333333','Ana Reyes','Ana','ana@yorki.local','admin',1,?,?)").run(now,now)
+for (const [sid, uid] of [['sess-george','11111111-1111-1111-1111-111111111111'],['sess-ana','33333333-3333-3333-3333-333333333333'],['sess-mia','22222222-2222-2222-2222-222222222222']])
+  db.prepare('INSERT OR REPLACE INTO sessions (id,user_id,created_at,expires_at) VALUES (?,?,?,?)').run(sid,uid,now,exp)
+console.log(db.prepare("PRAGMA table_info(tasks)").all().map(c=>c.name).slice(-4), db.prepare('SELECT id,title,status,version FROM tasks').all())

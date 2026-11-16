@@ -232,6 +232,8 @@ export interface EmailSettings {
   notify_on_submit: boolean
   notify_on_complete: boolean
   notify_on_comment: boolean
+  /** Email people when they are @mentioned (in-app notifications are always on). */
+  notify_on_mention?: boolean
 }
 
 export interface ThemeSettings {
@@ -306,6 +308,26 @@ export interface TaskPresence {
   user_id: string
   user_name: string
   mode: PresenceMode
+}
+
+export type NotificationType = 'mention' | 'comment' | 'assigned' | 'completed'
+
+export interface AppNotification {
+  id: string
+  type: NotificationType
+  task_id: string | null
+  task_title: string | null
+  actor_id: string | null
+  actor_name: string | null
+  snippet: string | null
+  created_at: string
+  read_at: string | null
+}
+
+export interface MentionableUser {
+  id: string
+  name: string
+  role: UserRole
 }
 
 export interface BoardSnapshot {

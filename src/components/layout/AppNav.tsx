@@ -6,6 +6,7 @@ import { useState } from 'react'
 import { LayoutDashboard, PlusSquare, Archive, Settings, LogOut, ChevronDown } from 'lucide-react'
 import { cn, getUserInitials, getUserDisplayName } from '@/lib/utils'
 import type { SessionUser } from '@/lib/types'
+import NotificationBell from './NotificationBell'
 
 interface Props { user: SessionUser }
 
@@ -77,12 +78,16 @@ export default function AppNav({ user }: Props) {
 
         {/* Right */}
         <div className="flex items-center gap-1.5">
+          <NotificationBell />
           <UserMenu user={user} onSignOut={handleSignOut} />
         </div>
       </header>
 
       {/* Mobile top bar */}
       <header className="sm:hidden relative flex h-[52px] sticky top-0 z-40 items-center justify-center px-4 border-b border-border bg-card/90 backdrop-blur-md">
+        <div className="absolute left-4">
+          <NotificationBell align="left" />
+        </div>
         <Link href="/dashboard" className="flex items-center justify-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={`${APP_BASE_PATH}/Yorki.png`} alt="Yorki" className="h-9 w-auto object-contain" />

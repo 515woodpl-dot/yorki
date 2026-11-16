@@ -3,9 +3,10 @@
 /**
  * Browser-side live collaboration helpers.
  *
- * useBoardStream: listens to /api/board/stream and calls onChange when the
- *   board (or who's viewing what) changes. Reconnects automatically and also
- *   refreshes when the tab regains focus or the network comes back.
+ * useLiveEvents: one shared /api/board/stream connection per tab. Emits
+ *   'board' | 'presence' | 'notifications' | 'resync'. Reconnects
+ *   automatically and resyncs when the tab regains focus / network returns.
+ * useBoardStream: the board's view of it (ignores notification events).
  * useTaskPresence: tells the server "this tab has card X open" (viewing or
  *   editing) with a heartbeat, and clears it on close.
  */
@@ -28,58 +29,92 @@ export function getTabClientId() {
   return tabClientId
 }
 
-export function useBoardStream(onChange: (info: { kind: 'board' | 'presence' | 'resync' }) => void) {
-  const onChangeRef = useRef(onChange)
-  onChangeRef.current = onChange
+export type LiveEventKind = 'board' | 'presence' | 'notifications' | 'resync'
+type LiveListener = (info: { kind: LiveEventKind }) => void
+
+// One EventSource per tab, shared by the board and the notification bell.
+const liveListeners = new Set<LiveListener>()
+let liveTeardown: (() => void) | null = null
+
+function emitLive(kind: LiveEventKind) {
+  for (const listener of Array.from(liveListeners)) listener({ kind })
+}
+
+function startLiveConnection() {
+  let source: EventSource | null = null
+  let reconnectTimer: ReturnType<typeof setTimeout> | undefined
+  let disposed = false
+  let hadError = false
+
+  const connect = () => {
+    if (disposed) return
+    source = new EventSource(`${APP_BASE_PATH}/api/board/stream`)
+    source.addEventListener('change', (event) => {
+      let kind: LiveEventKind = 'board'
+      try {
+        const parsed = JSON.parse((event as MessageEvent).data).kind
+        if (parsed === 'presence' || parsed === 'notifications') kind = parsed
+      } catch { /* default */ }
+      emitLive(kind)
+    })
+    source.addEventListener('open', () => {
+      // After a drop we may have missed events: resync once.
+      if (hadError) emitLive('resync')
+      hadError = false
+    })
+    source.addEventListener('error', () => {
+      hadError = true
+      // EventSource retries by itself unless the server refused (e.g. 401);
+      // in that case readyState is CLOSED and we retry slowly.
+      if (source?.readyState === EventSource.CLOSED) {
+        source.close()
+        clearTimeout(reconnectTimer)
+        reconnectTimer = setTimeout(connect, 10_000)
+      }
+    })
+  }
+
+  const resync = () => {
+    if (document.visibilityState === 'visible') emitLive('resync')
+  }
+
+  connect()
+  document.addEventListener('visibilitychange', resync)
+  window.addEventListener('online', resync)
+  return () => {
+    disposed = true
+    clearTimeout(reconnectTimer)
+    source?.close()
+    document.removeEventListener('visibilitychange', resync)
+    window.removeEventListener('online', resync)
+  }
+}
+
+/** Subscribe to live events. The shared connection opens with the first subscriber. */
+export function useLiveEvents(onEvent: LiveListener) {
+  const onEventRef = useRef(onEvent)
+  onEventRef.current = onEvent
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof EventSource === 'undefined') return
-
-    let source: EventSource | null = null
-    let reconnectTimer: ReturnType<typeof setTimeout> | undefined
-    let disposed = false
-    let hadError = false
-
-    const connect = () => {
-      if (disposed) return
-      source = new EventSource(`${APP_BASE_PATH}/api/board/stream`)
-      source.addEventListener('change', (event) => {
-        let kind: 'board' | 'presence' = 'board'
-        try { kind = JSON.parse((event as MessageEvent).data).kind === 'presence' ? 'presence' : 'board' } catch { /* default */ }
-        onChangeRef.current({ kind })
-      })
-      source.addEventListener('open', () => {
-        // After a drop we may have missed events: resync once.
-        if (hadError) onChangeRef.current({ kind: 'resync' })
-        hadError = false
-      })
-      source.addEventListener('error', () => {
-        hadError = true
-        // EventSource retries by itself unless the server refused (e.g. 401);
-        // in that case readyState is CLOSED and we retry slowly.
-        if (source?.readyState === EventSource.CLOSED) {
-          source.close()
-          clearTimeout(reconnectTimer)
-          reconnectTimer = setTimeout(connect, 10_000)
-        }
-      })
-    }
-
-    const resync = () => {
-      if (document.visibilityState === 'visible') onChangeRef.current({ kind: 'resync' })
-    }
-
-    connect()
-    document.addEventListener('visibilitychange', resync)
-    window.addEventListener('online', resync)
+    const listener: LiveListener = (info) => onEventRef.current(info)
+    liveListeners.add(listener)
+    if (!liveTeardown) liveTeardown = startLiveConnection()
     return () => {
-      disposed = true
-      clearTimeout(reconnectTimer)
-      source?.close()
-      document.removeEventListener('visibilitychange', resync)
-      window.removeEventListener('online', resync)
+      liveListeners.delete(listener)
+      if (liveListeners.size === 0 && liveTeardown) {
+        liveTeardown()
+        liveTeardown = null
+      }
     }
   }, [])
+}
+
+/** Board changes (cards, presence) — ignores notification-only events. */
+export function useBoardStream(onChange: (info: { kind: LiveEventKind }) => void) {
+  useLiveEvents((info) => {
+    if (info.kind !== 'notifications') onChange(info)
+  })
 }
 
 function sendPresence(taskId: string | null, mode: PresenceMode, { beacon = false } = {}) {

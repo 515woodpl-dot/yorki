@@ -13,6 +13,7 @@
 
 import { getSessionUser } from '@/lib/auth'
 import { DEFAULT_BOARD_ID, getLatestBoardEventSeq, getTaskPresenceSignature } from '@/lib/local-data'
+import { getNotificationSignature } from '@/lib/notifications'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -39,6 +40,7 @@ export async function GET(request: Request) {
       let closed = false
       let lastSeq = -1
       let lastPresence = ''
+      let lastNotifications = ''
 
       const cleanup = () => {
         if (closed) return
@@ -67,6 +69,12 @@ export async function GET(request: Request) {
             lastSeq = seq
             lastPresence = presence
             send(`event: change\ndata: ${JSON.stringify({ seq, kind })}\n\n`)
+          }
+          // Only this user's own notifications (never anyone else's).
+          const notifications = getNotificationSignature(user.id)
+          if (notifications !== lastNotifications) {
+            lastNotifications = notifications
+            send(`event: change\ndata: ${JSON.stringify({ kind: 'notifications' })}\n\n`)
           }
         } catch (err) {
           console.error('[Live] stream poll failed', err)
