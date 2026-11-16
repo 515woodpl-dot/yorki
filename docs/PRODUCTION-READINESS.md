@@ -35,6 +35,8 @@ See [the Droplet procedure](DROPLET-UPDATE.md) for prerequisites and the console
 
 The adversarial super-admin lifecycle findings and their current disposition are recorded in [the hard-mode report](HARD-MODE-BUGS.md).
 
+Two equal-power admin sessions were also tested against one shared database. The observed stale-board behavior, silent last-write-wins edits, lifecycle collision, current comment workflow, and recommended multi-human controls are documented in [the collaboration report](TWO-ADMIN-COLLABORATION.md).
+
 ## Approved UI refresh
 
 Implemented the desktop sidebar, phone navigation, task totals derived from visible authorized data, assignee/priority/due filters, search and empty states, board/list/calendar agenda views, and personal task scope. Task cards display assignees, due/overdue state, checklist progress, and attachment/comment counts. The existing column configuration and task permissions are preserved. A real drag-and-drop regression found the prior sortable container IDs/hover mutation could lose a card; the new flow persists a move without mutating cards during hover.
