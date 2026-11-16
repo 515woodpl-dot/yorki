@@ -38,6 +38,29 @@ function getActiveAdminCount() {
   return row.count
 }
 
+function assertMayManageUser(actor: { role: string }, userId: string) {
+  const target = getDb().prepare('SELECT role FROM users WHERE id = ?').get(userId) as { role: string } | undefined
+  if (!target) throw new Error('User not found.')
+  if (target.role === 'super_admin' && actor.role !== 'super_admin') {
+    throw new Error('Only a super admin can manage this account.')
+  }
+}
+
+function validateColumnInput(boardId: string, name: string, color: string, excludeId?: string) {
+  const db = getDb()
+  if (!db.prepare('SELECT id FROM boards WHERE id = ? AND deleted_at IS NULL').get(boardId)) throw new Error('Board not found.')
+  const normalizedName = name.trim()
+  if (!normalizedName) throw new Error('Column name is required.')
+  if (normalizedName.length > 80) throw new Error('Column name is too long.')
+  if (!/^#[0-9a-f]{6}$/i.test(color)) throw new Error('Invalid column color.')
+  const duplicate = db.prepare(`
+    SELECT id FROM columns
+    WHERE board_id = ? AND deleted_at IS NULL AND LOWER(name) = LOWER(?) AND (? IS NULL OR id != ?)
+  `).get(boardId, normalizedName, excludeId ?? null, excludeId ?? null)
+  if (duplicate) throw new Error('A column with this name already exists.')
+  return normalizedName
+}
+
 const BACKUP_HEARTBEAT_PATH = '/var/lib/yorki/.last_backup_ok'
 const BACKUP_LOG_PATH = '/var/log/yorki-rclone.log'
 const BACKUP_STALE_MINUTES = 10 * 60
@@ -147,7 +170,8 @@ export async function getColumns(boardId: string) {
 export async function createColumn(boardId: string, name: string, color = '#6b7280'): Promise<ActionResult> {
   try {
     const user = await requireRole('admin', 'super_admin')
-    await dbCreateColumn(boardId, name, color)
+    const normalizedName = validateColumnInput(boardId, name, color)
+    await dbCreateColumn(boardId, normalizedName, color)
     await createActivityLog({
       actor_id: user.id, task_id: null,
       entity_type: 'column', entity_id: null,
@@ -164,7 +188,13 @@ export async function createColumn(boardId: string, name: string, color = '#6b72
 export async function updateColumn(columnId: string, updates: { name?: string; color?: string }): Promise<ActionResult> {
   try {
     const user = await requireRole('admin', 'super_admin')
-    await dbUpdateColumn(columnId, updates)
+    const db = getDb()
+    const column = db.prepare('SELECT board_id, name, color FROM columns WHERE id = ? AND deleted_at IS NULL').get(columnId) as { board_id: string; name: string; color: string } | undefined
+    if (!column) throw new Error('Column not found.')
+    const nextName = updates.name === undefined ? column.name : updates.name
+    const nextColor = updates.color === undefined ? column.color : updates.color
+    const normalizedName = validateColumnInput(column.board_id, nextName, nextColor, columnId)
+    await dbUpdateColumn(columnId, { ...updates, ...(updates.name !== undefined ? { name: normalizedName } : {}) })
     await createActivityLog({
       actor_id: user.id, task_id: null,
       entity_type: 'column', entity_id: columnId,
@@ -203,7 +233,10 @@ export async function getAllUsersAction(): Promise<UserProfile[]> {
 export async function createUser(email: string, fullName: string, role: 'staff' | 'admin'): Promise<ActionResult> {
   try {
     const actor = await requireRole('admin', 'super_admin')
+    if (role !== 'staff' && role !== 'admin') throw new Error('Invalid role.')
     const normalizedEmail = email.trim().toLowerCase()
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) throw new Error('Enter a valid email address.')
+    if (!fullName.trim()) throw new Error('Enter a full name.')
     const existingUsers = await getAllUsers()
     if (existingUsers.some((user) => user.email?.trim().toLowerCase() === normalizedEmail)) {
       return { success: false, error: 'A user with that email already exists.' }
@@ -233,17 +266,18 @@ export async function createUser(email: string, fullName: string, role: 'staff' 
 export async function updateUserRole(userId: string, newRole: 'staff' | 'admin'): Promise<ActionResult> {
   try {
     const actor = await requireRole('admin', 'super_admin')
+    assertMayManageUser(actor, userId)
+    if (newRole !== 'staff' && newRole !== 'admin') throw new Error('Invalid role.')
     if (actor.id === userId) {
       return { success: false, error: 'You cannot change your own role.' }
     }
-    if (newRole === 'staff') {
-      const target = (await getAllUsers()).find((user) => user.id === userId)
-      const activeAdminCount = getActiveAdminCount()
-      if (target?.is_active && (target.role === 'admin' || target.role === 'super_admin') && activeAdminCount <= 1) {
-        return { success: false, error: 'You cannot remove the last active admin account.' }
+    getDb().transaction(() => {
+      const target = getDb().prepare('SELECT role, is_active FROM users WHERE id = ?').get(userId) as { role: string; is_active: number }
+      if (newRole === 'staff' && target.is_active === 1 && (target.role === 'admin' || target.role === 'super_admin') && getActiveAdminCount() <= 1) {
+        throw new Error('You cannot remove the last active admin account.')
       }
-    }
-    await dbUpdateUserRole(userId, newRole)
+      dbUpdateUserRole(userId, newRole)
+    }).immediate()
     await createActivityLog({
       actor_id: actor.id, task_id: null,
       entity_type: 'user', entity_id: userId,
@@ -259,17 +293,19 @@ export async function updateUserRole(userId: string, newRole: 'staff' | 'admin')
 export async function toggleUserActive(userId: string, isActive: boolean): Promise<ActionResult> {
   try {
     const actor = await requireRole('admin', 'super_admin')
+    assertMayManageUser(actor, userId)
     if (actor.id === userId && !isActive) {
       return { success: false, error: 'You cannot deactivate your own account.' }
     }
-    if (!isActive) {
-      const target = (await getAllUsers()).find((user) => user.id === userId)
-      const activeAdminCount = getActiveAdminCount()
-      if (target?.is_active && (target.role === 'admin' || target.role === 'super_admin') && activeAdminCount <= 1) {
-        return { success: false, error: 'You cannot deactivate the last active admin account.' }
+    if (typeof isActive !== 'boolean') throw new Error('Invalid active state.')
+    getDb().transaction(() => {
+      const target = getDb().prepare('SELECT role, is_active FROM users WHERE id = ?').get(userId) as { role: string; is_active: number }
+      if (!isActive && target.is_active === 1 && (target.role === 'admin' || target.role === 'super_admin') && getActiveAdminCount() <= 1) {
+        throw new Error('You cannot deactivate the last active admin account.')
       }
-    }
-    await dbToggleUserActive(userId, isActive)
+      dbToggleUserActive(userId, isActive)
+      if (!isActive) getDb().prepare('DELETE FROM sessions WHERE user_id = ?').run(userId)
+    }).immediate()
     await createActivityLog({
       actor_id: actor.id, task_id: null,
       entity_type: 'user', entity_id: userId,
@@ -284,11 +320,17 @@ export async function toggleUserActive(userId: string, isActive: boolean): Promi
 
 export async function setUserPassword(userId: string, password: string): Promise<ActionResult> {
   try {
-    await requireRole('admin', 'super_admin')
+    const actor = await requireRole('admin', 'super_admin')
+    assertMayManageUser(actor, userId)
     if (password.length < 8) return { success: false, error: 'Password must be at least 8 characters.' }
     const hash = await hashPassword(password)
-    getDb().prepare('UPDATE users SET password_hash=?, updated_at=? WHERE id=?')
-      .run(hash, new Date().toISOString(), userId)
+    const db = getDb()
+    db.transaction(() => {
+      db.prepare('UPDATE users SET password_hash=?, updated_at=? WHERE id=?')
+        .run(hash, new Date().toISOString(), userId)
+      db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId)
+      db.prepare('DELETE FROM invites WHERE user_id = ?').run(userId)
+    })()
     return { success: true, data: undefined }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Unknown error' }
@@ -298,15 +340,17 @@ export async function setUserPassword(userId: string, password: string): Promise
 export async function deleteUser(userId: string): Promise<ActionResult> {
   try {
     const actor = await requireRole('admin', 'super_admin')
+    assertMayManageUser(actor, userId)
     if (actor.id === userId) {
       return { success: false, error: 'You cannot delete your own account.' }
     }
-    const target = (await getAllUsers()).find((user) => user.id === userId)
-    const activeAdminCount = getActiveAdminCount()
-    if (target?.is_active && (target.role === 'admin' || target.role === 'super_admin') && activeAdminCount <= 1) {
-      return { success: false, error: 'You cannot delete the last active admin account.' }
-    }
-    await dbDeleteUser(userId)
+    getDb().transaction(() => {
+      const target = getDb().prepare('SELECT role, is_active FROM users WHERE id = ?').get(userId) as { role: string; is_active: number }
+      if (target.is_active === 1 && (target.role === 'admin' || target.role === 'super_admin') && getActiveAdminCount() <= 1) {
+        throw new Error('You cannot delete the last active admin account.')
+      }
+      dbDeleteUser(userId)
+    }).immediate()
     await createActivityLog({
       actor_id: actor.id, task_id: null,
       entity_type: 'user', entity_id: userId,

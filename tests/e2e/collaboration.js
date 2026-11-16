@@ -9,20 +9,20 @@ async function login(browser, sid) {
   const page = await ctx.newPage()
   page.on('pageerror', e => results.push(`PAGEERROR ${sid}: ${e.message}`))
   await page.goto(`${BASE}/dashboard`)
-  await page.locator('div.hidden.sm\\:flex').getByText('Finalize Yorki board polish').waitFor()
+  await page.getByRole('button', { name: 'Open task: Finalize Yorki board polish' }).waitFor()
   return page
 }
-const card = (page, title) => page.locator('div.hidden.sm\\:flex div.group', { hasText: title }).first()
+const card = (page, title) => page.getByRole('button', { name: `Open task: ${title}`, exact: true })
 const colOf = async (page, title) => page.evaluate((t) => {
-  for (const col of document.querySelectorAll('.hidden.sm\\:flex > div')) {
-    if ([...col.querySelectorAll('p')].some(p => p.textContent.trim() === t)) return col.querySelector('h2')?.textContent
+  for (const col of document.querySelectorAll('[data-board-column]')) {
+    if (col.querySelector(`[aria-label="Open task: ${t}"]`)) return col.getAttribute('data-board-column')
   }
   return null
 }, title)
 const toasts = (page) => page.locator('[data-sonner-toast]').allInnerTexts()
 
 ;(async () => {
-  const browser = await chromium.launch()
+  const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, args: process.env.CHROMIUM_PATH ? ['--no-sandbox'] : [] })
   const george = await login(browser, 'sess-george')
   const ana = await login(browser, 'sess-ana')
 
@@ -102,4 +102,5 @@ const toasts = (page) => page.locator('[data-sonner-toast]').allInnerTexts()
 
   await browser.close()
   console.log(results.join('\n'))
+  if (results.some(result => /^(FAIL|PAGEERROR)/.test(result))) process.exitCode = 1
 })().catch(e => { console.log(results.join('\n')); console.error(e); process.exit(1) })

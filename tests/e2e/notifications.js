@@ -1,7 +1,6 @@
 const { chromium } = require('playwright')
 const BASE = 'http://127.0.0.1:3100/task'
 const out = []; const check = (n, ok, x='') => out.push(`${ok?'PASS':'FAIL'}  ${n} ${x}`)
-const BOARD = 'div.hidden.sm\\:flex'
 async function login(browser, sid, viewport = { width: 1400, height: 900 }) {
   const ctx = await browser.newContext({ viewport })
   await ctx.addCookies([{ name: 'yorki_session', value: sid, domain: '127.0.0.1', path: '/' }])
@@ -11,8 +10,9 @@ async function login(browser, sid, viewport = { width: 1400, height: 900 }) {
   await page.waitForLoadState('networkidle').catch(()=>{})
   return page
 }
-const card = (p, t) => p.locator(`${BOARD} div.group`, { hasText: t }).first()
-const badge = async (p) => { const b = p.locator('header.hidden button[aria-label^="Notifications"]'); return (await b.getAttribute('aria-label')) || '' }
+const card = (p, t) => p.getByRole('button', { name: `Open task: ${t}`, exact: true })
+const bell = p => p.locator('button[aria-label^="Notifications"]:visible')
+const badge = async (p) => (await bell(p).getAttribute('aria-label')) || ''
 async function until(fn, ms = 6000) { const end = Date.now() + ms; while (Date.now() < end) { if (await fn()) return true; await new Promise(r => setTimeout(r, 250)) } return false }
 async function comment(p, text) {
   const ta = p.locator('textarea[placeholder^="Add a comment"]')
@@ -20,7 +20,7 @@ async function comment(p, text) {
 }
 
 ;(async () => {
-  const browser = await chromium.launch()
+  const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, args: process.env.CHROMIUM_PATH ? ['--no-sandbox'] : [] })
   const george = await login(browser, 'sess-george')
   const ana = await login(browser, 'sess-ana')
   const mia = await login(browser, 'sess-mia')
@@ -50,7 +50,7 @@ async function comment(p, text) {
   check('comment: assignee Mia notified of reply', await until(async () => /2 unread/.test(await badge(mia))), `(${await badge(mia)})`)
 
   // 3. Ana opens via bell -> panel opens, unread cleared, her own chip highlighted
-  await ana.locator('header.hidden button[aria-label^="Notifications"]').click()
+  await bell(ana).click()
   await ana.getByRole('button', { name: /George mentioned you on/ }).click()
   check('bell: clicking opens the card', await until(async () => (await ana.locator('textarea[placeholder^="Add a comment"]').count()) > 0))
   check('bell: unread cleared after opening', await until(async () => !(/unread/.test(await badge(ana)))), `(${await badge(ana)})`)
@@ -79,15 +79,16 @@ async function comment(p, text) {
   // 6. George completes -> Mia notified
   await george.getByRole('button', { name: 'Mark Complete' }).click()
   await mia.goto(BASE + '/dashboard')
-  await mia.locator('header.hidden button[aria-label^="Notifications"]').click()
+  await bell(mia).click()
   check('completed: assignee notified', await until(async () => (await mia.getByRole('button', { name: /George completed/ }).count()) > 0))
 
   // 7. Mobile: bell present
   const phone = await login(browser, 'sess-ana', { width: 390, height: 844 })
-  check('mobile: bell visible in top bar', await phone.locator('header.sm\\:hidden button[aria-label^="Notifications"]').isVisible())
-  await phone.locator('header.sm\\:hidden button[aria-label^="Notifications"]').click()
+  check('mobile: bell visible in top bar', await bell(phone).isVisible())
+  await bell(phone).click()
   await phone.screenshot({ path: (process.env.SP || '/tmp') + '/mobile-bell.png' })
   await ana.screenshot({ path: (process.env.SP || '/tmp') + '/desktop-panel.png' })
 
   await browser.close(); console.log(out.join('\n'))
+  if (out.some(result => /^(FAIL|PAGEERROR)/.test(result))) process.exitCode = 1
 })().catch(e => { console.log(out.join('\n')); console.error(e); process.exit(1) })

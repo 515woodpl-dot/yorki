@@ -31,9 +31,10 @@ function buildContentDisposition(fileName: string, inline: boolean) {
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { attachmentId: string } },
+  { params }: { params: Promise<{ attachmentId: string }> },
 ) {
-  const attachment = await getAttachmentById(params.attachmentId)
+  const { attachmentId } = await params
+  const attachment = await getAttachmentById(attachmentId)
   if (!attachment) {
     return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
   }

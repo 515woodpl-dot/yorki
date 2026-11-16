@@ -81,6 +81,37 @@ function notifyBoard(task: Pick<Task, 'id' | 'board_id'>, actorId: string, type:
   }
 }
 
+const VALID_PRIORITIES = new Set(['low', 'normal', 'high', 'urgent'])
+const VALID_STATUSES = new Set(['new', 'pending', 'in_progress', 'completed', 'archived'])
+const MAX_TITLE_LENGTH = 500
+const MAX_DESCRIPTION_LENGTH = 20_000
+const MAX_CUSTOM_FIELDS_BYTES = 100_000
+
+function normalizedTaskTitle(value: unknown) {
+  if (typeof value !== 'string') throw new Error('Title is required.')
+  const title = value.trim()
+  if (!title) throw new Error('Title is required.')
+  if (title.length > MAX_TITLE_LENGTH) throw new Error('Title is too long.')
+  return title
+}
+
+function validateTaskFields(input: Record<string, unknown>) {
+  if ('priority' in input && (typeof input.priority !== 'string' || !VALID_PRIORITIES.has(input.priority))) throw new Error('Invalid priority.')
+  if ('status' in input && (typeof input.status !== 'string' || !VALID_STATUSES.has(input.status))) throw new Error('Invalid status.')
+  if ('description' in input && input.description != null && (typeof input.description !== 'string' || input.description.length > MAX_DESCRIPTION_LENGTH)) throw new Error('Description is too long.')
+  if ('due_date' in input && input.due_date && (typeof input.due_date !== 'string' || Number.isNaN(Date.parse(input.due_date)))) throw new Error('Invalid due date.')
+  if ('custom_fields' in input && input.custom_fields != null) {
+    if (typeof input.custom_fields !== 'object' || Array.isArray(input.custom_fields)) throw new Error('Invalid custom fields.')
+    if (Buffer.byteLength(JSON.stringify(input.custom_fields), 'utf8') > MAX_CUSTOM_FIELDS_BYTES) throw new Error('Custom fields are too large.')
+  }
+}
+
+function withoutPublicShare(task: Task) {
+  const customFields = { ...(task.custom_fields ?? {}) }
+  for (const key of ['share_token', 'recipient_email', 'recipient_emails']) delete customFields[key]
+  return customFields
+}
+
 function normalizePath(p: string) {
   return process.env.NODE_ENV === 'production' ? `/task${p}` : p
 }
@@ -253,6 +284,8 @@ export async function getBoardSnapshot(boardId = DEFAULT_BOARD_ID): Promise<Boar
 export async function createTask(input: CreateTaskInput): Promise<ActionResult<Task>> {
   try {
     const user    = await requireRole('staff', 'admin', 'super_admin')
+    validateTaskFields(input as unknown as Record<string, unknown>)
+    input.title = normalizedTaskTitle(input.title)
     const columns = await getActiveColumns(DEFAULT_BOARD_ID, false)
     const inbox   = columns.find(c => c.is_default)
     if (!inbox) throw new Error('Inbox column not found.')
@@ -355,6 +388,7 @@ export async function moveTask(input: MoveTaskInput, expected?: TaskExpectation)
     const columns = await getActiveColumns(task.board_id, true)
     const toCol   = columns.find(c => c.id === input.new_column_id)
     if (!toCol) throw new Error('That column no longer exists.')
+    if (!Number.isFinite(input.new_position)) throw new Error('Invalid task position.')
     if (toCol.is_archive) {
       throw new Error('Use the archive action to archive tasks.')
     }
@@ -405,6 +439,8 @@ export async function updateTask(input: UpdateTaskInput, expected?: TaskExpectat
     const user = await requireRole('staff', 'admin', 'super_admin')
     const existingTask = await getTaskById(input.id)
     if (!existingTask) throw new Error('This card no longer exists — it may have been deleted.')
+    validateTaskFields(input as unknown as Record<string, unknown>)
+    if ('status' in input || 'column_id' in input || 'position' in input) throw new Error('Use the task lifecycle actions to move or change task status.')
     const previousRecipientEmails = getRecipientEmailsFromTask(existingTask)
 
     const isAdmin = isAdminUser(user)
@@ -637,7 +673,7 @@ export async function archiveTask(taskId: string, expected?: TaskExpectation): P
     const archiveCol = columns.find(c => c.is_archive)
     if (!archiveCol) throw new Error('Archive column not configured.')
 
-    const updated = await dbUpdateTask(taskId, { status: 'archived', column_id: archiveCol.id }, {
+    const updated = await dbUpdateTask(taskId, (current) => ({ status: 'archived', column_id: archiveCol.id, custom_fields: withoutPublicShare(current) }), {
       actorId: user.id,
       guard: expectationGuard(expected, user.id, (cur) => cur.status === 'archived' ? 'it is already archived' : null),
     })
@@ -675,7 +711,7 @@ export async function restoreTask(taskId: string, targetColumnId: string): Promi
       for (const key of ['share_token', 'recipient_email', 'recipient_emails', 'assigned_user_id', 'assigned_user_ids', 'assigned_user_names']) {
         delete nextCustomFields[key]
       }
-      return { status: 'new', column_id: targetColumnId, custom_fields: nextCustomFields }
+      return { status: 'new', column_id: targetColumnId, completed_at: null, custom_fields: nextCustomFields }
     }, {
       actorId: user.id,
       guard: expectationGuard(undefined, user.id, (cur) => cur.status !== 'archived' ? 'it was already restored' : null),

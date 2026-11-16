@@ -1,4 +1,4 @@
-const CACHE_NAME = 'yorki-pwa-v1'
+const CACHE_NAME = 'yorki-pwa-v2'
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -50,7 +50,13 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
-  if (url.pathname.includes('/api/')) {
+  // Only immutable build assets and public PWA resources may be cached.
+  // RSC requests use GET too and can contain the signed-in user's private data.
+  const scopePath = new URL(self.registration.scope).pathname.replace(/\/$/, '')
+  const publicResources = ['/offline', '/manifest.webmanifest', '/pwa-192x192', '/pwa-512x512']
+  const isPublicResource = publicResources.some((resource) => url.pathname === `${scopePath}${resource}`)
+  const isBuildAsset = url.pathname.startsWith(`${scopePath}/_next/static/`)
+  if (!isPublicResource && !isBuildAsset) {
     return
   }
 

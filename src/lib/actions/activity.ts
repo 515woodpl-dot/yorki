@@ -34,21 +34,6 @@ function canAccessTask(user: { id: string; role: string }, task: { submitted_by:
     || isTaskAssignedToUser(task, user.id)
 }
 
-export async function logActivity(input: {
-  actor_id: string; task_id?: string; entity_type: string
-  entity_id?: string; action: Parameters<typeof createActivityLog>[0]['action']
-  metadata: Record<string, unknown>
-}): Promise<void> {
-  await createActivityLog({
-    actor_id:    input.actor_id,
-    task_id:     input.task_id     ?? null,
-    entity_type: input.entity_type,
-    entity_id:   input.entity_id   ?? null,
-    action:      input.action,
-    metadata:    input.metadata,
-  })
-}
-
 export async function getTaskComments(taskId: string): Promise<CommentWithAuthor[]> {
   const user = await requireRole('staff', 'admin', 'super_admin')
   const task = await getTaskById(taskId)
@@ -71,6 +56,8 @@ export async function addComment(
 ): Promise<ActionResult<Comment>> {
   try {
     const user = await requireRole('staff', 'admin', 'super_admin')
+    if (typeof body !== 'string' || !body.trim()) return { success: false, error: 'Comment cannot be empty.' }
+    if (body.length > 20_000) return { success: false, error: 'Comment is too long.' }
     const task = await getTaskById(taskId)
     if (!task || !canAccessTask(user, task)) {
       return { success: false, error: 'You do not have permission to comment on this task.' }

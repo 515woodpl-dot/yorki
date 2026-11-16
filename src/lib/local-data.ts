@@ -44,7 +44,8 @@ function mapComment(row: Record<string, unknown>): Comment {
 }
 
 function mapUser(row: Record<string, unknown>): UserProfile {
-  return { ...(row as unknown as UserProfile), is_active: row.is_active === 1 }
+  const { password_hash: _passwordHash, ...profile } = row
+  return { ...(profile as unknown as UserProfile), is_active: row.is_active === 1 }
 }
 
 function mapColumn(row: Record<string, unknown>): Column {
@@ -118,15 +119,15 @@ export async function createUser(email: string, fullName: string, role: UserRole
     .run(randomUUID(), fullName, fullName, email, null, role, null, 1, n, n)
 }
 
-export async function updateUserRole(userId: string, newRole: UserRole): Promise<void> {
+export function updateUserRole(userId: string, newRole: UserRole): void {
   getDb().prepare('UPDATE users SET role=?, updated_at=? WHERE id=?').run(newRole, now(), userId)
 }
 
-export async function toggleUserActive(userId: string, isActive: boolean): Promise<void> {
+export function toggleUserActive(userId: string, isActive: boolean): void {
   getDb().prepare('UPDATE users SET is_active=?, updated_at=? WHERE id=?').run(isActive ? 1 : 0, now(), userId)
 }
 
-export async function deleteUser(userId: string): Promise<void> {
+export function deleteUser(userId: string): void {
   const db = getDb()
   const relatedTasks = db.prepare(`
     SELECT COUNT(*) as n FROM tasks
@@ -135,6 +136,17 @@ export async function deleteUser(userId: string): Promise<void> {
   if (relatedTasks.n > 0) {
     throw new Error('Cannot delete a user with assigned or submitted tasks.')
   }
+
+  const customAssignments = db.prepare('SELECT custom_fields FROM tasks WHERE deleted_at IS NULL').all() as Array<{ custom_fields: string }>
+  const appearsInAssignmentMetadata = customAssignments.some(({ custom_fields }) => {
+    try {
+      const value = JSON.parse(custom_fields || '{}') as Record<string, unknown>
+      return Array.isArray(value.assigned_user_ids) && value.assigned_user_ids.includes(userId)
+    } catch {
+      return false
+    }
+  })
+  if (appearsInAssignmentMetadata) throw new Error('Cannot delete a user who is assigned to active tasks.')
 
   const relatedComments = db.prepare(`
     SELECT COUNT(*) as n FROM comments
@@ -191,6 +203,8 @@ export async function createColumn(boardId: string, name: string, color = '#6b72
 
 export async function updateColumn(columnId: string, updates: { name?: string; color?: string }): Promise<void> {
   const db = getDb()
+  const existing = db.prepare('SELECT id FROM columns WHERE id=? AND deleted_at IS NULL').get(columnId)
+  if (!existing) throw new Error('Column not found')
   if (updates.name  !== undefined) db.prepare('UPDATE columns SET name=?,  updated_at=? WHERE id=?').run(updates.name,  now(), columnId)
   if (updates.color !== undefined) db.prepare('UPDATE columns SET color=?, updated_at=? WHERE id=?').run(updates.color, now(), columnId)
 }
@@ -447,7 +461,8 @@ export async function createComment(taskId: string, authorId: string, body: stri
 }
 
 export async function softDeleteComment(commentId: string): Promise<void> {
-  getDb().prepare('UPDATE comments SET deleted_at=?, updated_at=? WHERE id=?').run(now(), now(), commentId)
+  const result = getDb().prepare('UPDATE comments SET deleted_at=?, updated_at=? WHERE id=? AND deleted_at IS NULL').run(now(), now(), commentId)
+  if (result.changes !== 1) throw new Error('Comment not found')
 }
 
 // ─── Attachments ──────────────────────────────────────────────────────────────

@@ -1,4 +1,3 @@
-import bcrypt from 'bcryptjs'
 /**
  * db.ts — SQLite database layer
  *
@@ -15,17 +14,22 @@ import { YORKI_DB_DIR, YORKI_DB_PATH } from './db-config'
 fs.mkdirSync(YORKI_DB_DIR, { recursive: true })
 
 let _db: Database.Database | null = null
-const DEFAULT_ADMIN_PASSWORD_HASH = '$2b$12$LTGriHDrWrARBS5nORBh8eGsGkqyquBFHn8N2ouiyvJQCYub9Ngw6'
 
 export function getDb(): Database.Database {
   if (_db) return _db
 
-  _db = new Database(YORKI_DB_PATH)
-  _db.pragma('journal_mode = WAL')
-  _db.pragma('foreign_keys = ON')
-
-  migrate(_db)
-  return _db
+  const db = new Database(YORKI_DB_PATH)
+  try {
+    db.pragma('journal_mode = WAL')
+    db.pragma('foreign_keys = ON')
+    db.pragma('busy_timeout = 5000')
+    db.transaction(() => migrate(db)).immediate()
+    _db = db
+    return db
+  } catch (error) {
+    db.close()
+    throw error
+  }
 }
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
@@ -70,6 +74,13 @@ function migrate(db: Database.Database) {
       created_at    TEXT NOT NULL,
       updated_at    TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS login_attempts (
+      email TEXT PRIMARY KEY,
+      count INTEGER NOT NULL,
+      first_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_login_attempts_time ON login_attempts(first_at);
 
     CREATE TABLE IF NOT EXISTS sessions (
       id         TEXT PRIMARY KEY,
@@ -153,6 +164,8 @@ function migrate(db: Database.Database) {
       created_at TEXT NOT NULL
     );
 
+    CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at);
     CREATE INDEX IF NOT EXISTS idx_tasks_board    ON tasks(board_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_column   ON tasks(column_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_deleted  ON tasks(deleted_at);
@@ -259,7 +272,7 @@ function seedDb(db: Database.Database) {
   for (const c of cols) insCol.run(...c, now, now, null)
 
   db.prepare(`INSERT INTO users VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(
-    USER_ID,'George','George','george@yorki',null,'super_admin',null,1,DEFAULT_ADMIN_PASSWORD_HASH,now,now
+    USER_ID,'George','George','george@yorki',null,'super_admin',null,1,null,now,now
   )
   db.prepare(`INSERT INTO users VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(
     USER2_ID,'Mia Porter','Mia','mia@yorki.local',null,'staff',null,1,null,now,now

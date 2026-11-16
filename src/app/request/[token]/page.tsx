@@ -13,11 +13,12 @@ export const metadata: Metadata = {
 }
 
 interface Props {
-  params: { token: string }
+  params: Promise<{ token: string }>
 }
 
 export default async function SharedTaskPage({ params }: Props) {
-  const data = await getSharedTaskData(params.token)
+  const { token } = await params
+  const data = await getSharedTaskData(token)
   if (!data) notFound()
 
   const { task } = data
@@ -86,7 +87,7 @@ export default async function SharedTaskPage({ params }: Props) {
                 {task.attachments.map((attachment) => (
                   <Link
                     key={attachment.id}
-                    href={`${normalizeAppAssetUrl(attachment.public_url)}?token=${encodeURIComponent(params.token)}`}
+                    href={`${normalizeAppAssetUrl(attachment.public_url)}?token=${encodeURIComponent(token)}`}
                     target="_blank"
                     className="rounded-2xl border border-[#E3E8F0] bg-[#FBFCFE] px-4 py-3 text-sm font-medium text-[#425680] hover:border-[#AFC0D8]"
                   >
