@@ -215,25 +215,6 @@ export default function SubmitForm({ staffUsers }: SubmitFormProps) {
       </section>
       <section className="space-y-4 rounded-2xl border border-border/70 bg-card p-5 shadow-sm sm:p-6">
       <div className="flex items-start gap-4 border-b border-border/70 pb-5"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-sm font-bold text-amber-800 dark:bg-amber-950 dark:text-amber-300"><Flag size={17} aria-hidden="true" /></span><div><h2 className="text-lg font-semibold tracking-tight">Plan the work</h2><p className="mt-1 text-sm text-muted-foreground">Set the priority, timing, and steps for this request.</p></div></div>
-      <div className="space-y-2">
-        <label className="flex items-center gap-2 text-sm font-medium text-foreground">
-          <Calendar size={14} className="text-muted-foreground" />
-          Google Calendar
-          <span className="text-xs text-muted-foreground font-normal">(optional)</span>
-        </label>
-        <label className="flex items-center gap-3 rounded-lg border border-border bg-background px-3 py-3 text-sm text-foreground">
-          <input
-            type="checkbox"
-            {...register('send_to_calendar')}
-            className="h-5 w-5 shrink-0 cursor-pointer rounded border-input text-primary accent-[hsl(var(--primary))] focus:ring-primary touch-manipulation"
-          />
-          <span>Send this task to Google Calendar</span>
-        </label>
-        <p className="text-xs text-muted-foreground">
-          Only checked tasks will be sent to the calendar.
-        </p>
-      </div>
-
       {/* Checklist */}
       <div className="space-y-2">
         <label className="flex items-center gap-2 text-sm font-medium text-foreground">
@@ -419,6 +400,25 @@ export default function SubmitForm({ staffUsers }: SubmitFormProps) {
       </section>
       <section className="space-y-4 rounded-2xl border border-border/70 bg-card p-5 shadow-sm sm:p-6">
       <div className="flex items-start gap-4 border-b border-border/70 pb-5"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-sm font-bold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"><Paperclip size={17} aria-hidden="true" /></span><div><h2 className="text-lg font-semibold tracking-tight">The finishing details</h2><p className="mt-1 text-sm text-muted-foreground">Add any notes or files your team might need.</p></div></div>
+      <div className="space-y-2">
+        <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+          <Calendar size={14} className="text-muted-foreground" />
+          Google Calendar
+          <span className="text-xs text-muted-foreground font-normal">(optional)</span>
+        </label>
+        <label className="flex items-center gap-3 rounded-lg border border-border bg-background px-3 py-3 text-sm text-foreground">
+          <input
+            type="checkbox"
+            {...register('send_to_calendar')}
+            className="h-5 w-5 shrink-0 cursor-pointer rounded border-input text-primary accent-[hsl(var(--primary))] focus:ring-primary touch-manipulation"
+          />
+          <span>Send this task to Google Calendar</span>
+        </label>
+        <p className="text-xs text-muted-foreground">
+          Only checked tasks will be sent to the calendar.
+        </p>
+      </div>
+
       {/* Notes */}
       <div className="space-y-1.5">
         <label className="text-sm font-medium text-foreground">Additional notes</label>
@@ -475,10 +475,8 @@ export default function SubmitForm({ staffUsers }: SubmitFormProps) {
       </div>
 
       </section>
-        </div>
-      </div>
       {/* Submit */}
-      <div className="flex justify-end pb-2 lg:col-span-2">
+      <div className="flex justify-end pb-2">
         <button type="submit" disabled={submitting}
           className={cn(
             'w-full sm:w-auto sm:min-w-56 h-12 rounded-xl font-semibold text-sm',
@@ -489,6 +487,8 @@ export default function SubmitForm({ staffUsers }: SubmitFormProps) {
           )}>
           {submitting ? <><Loader2 size={16} className="animate-spin" />Submitting…</> : 'Submit Request'}
         </button>
+      </div>
+        </div>
       </div>
     </form>
   )

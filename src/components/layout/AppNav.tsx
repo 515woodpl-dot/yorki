@@ -53,16 +53,16 @@ export default function AppNav({ user }: { user: SessionUser }) {
   )
 
   return <>
-    <aside className="fixed inset-y-0 left-0 z-40 hidden w-56 flex-col border-r border-border/70 bg-card lg:flex">
+    <aside className="fixed inset-y-0 left-0 z-40 hidden w-56 flex-col border-r border-blue-200/70 bg-gradient-to-b from-[#f6faff] via-[#eaf3ff] to-[#dceaff] shadow-[4px_0_24px_-14px_rgba(35,67,115,0.3)] dark:border-border dark:from-slate-900 dark:via-slate-900 dark:to-slate-800 lg:flex">
       <Link href="/dashboard" className="flex items-center gap-2.5 px-6 pb-9 pt-8"><Brand /><span><span className="block text-2xl font-bold tracking-tight">Yorki</span><span className="block text-[9px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Golden Stone Works</span></span></Link>
       <nav aria-label="Main navigation" className="space-y-1 px-4">
         {mainLinks.map(({ href, label, icon: Icon, key }) => <Link key={key} href={href} aria-current={active === key ? 'page' : undefined} className={navClass(active === key)}><Icon size={19} />{label}</Link>)}
         {isAdmin && <Link href="/archive" aria-current={active === '/archive' ? 'page' : undefined} className={navClass(active === '/archive')}><Archive size={19} />Archive</Link>}
       </nav>
-      <div className="mx-6 my-6 border-t border-border/70" />
+      <div className="mx-6 my-6 border-t border-blue-200/80 dark:border-border" />
       {isAdmin && <nav aria-label="Administration" className="space-y-1 px-4"><p className="mb-3 px-3 text-[11px] font-medium uppercase tracking-widest text-muted-foreground">Administration</p><Link href="/admin/users" className={navClass(active.startsWith('/admin/users'))}><Users size={19} />Users</Link><Link href="/admin/settings" className={navClass(active.startsWith('/admin') && !active.startsWith('/admin/users'))}><Settings size={19} />Settings</Link></nav>}
-      <div className="mx-4 mt-6"><Link href="/submit" className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground hover:opacity-90"><Plus size={18} />New task</Link></div>
-      <div className="mt-auto border-t border-border/70 p-4"><NotificationBell />{accountMenu(true)}</div>
+      <div className="mx-4 mt-6"><Link href="/submit" className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#24457f] to-[#367caf] px-4 text-sm font-semibold text-white shadow-md shadow-blue-900/20 transition-opacity hover:opacity-90"><Plus size={18} />New task</Link></div>
+      <div className="mt-auto border-t border-blue-200/80 p-4 dark:border-border"><NotificationBell />{accountMenu(true)}</div>
     </aside>
     <header className="sticky top-0 z-40 flex h-[72px] items-center justify-between border-b border-border/60 bg-card/95 px-5 backdrop-blur lg:hidden">
       <Link href="/dashboard" className="flex items-center gap-2"><Brand /><span><span className="block text-xl font-bold leading-6 tracking-tight">Yorki</span><span className="text-[8px] font-semibold uppercase tracking-widest text-muted-foreground">Golden Stone Works</span></span></Link><div className="flex items-center"><NotificationBell />{accountMenu(false)}</div>
