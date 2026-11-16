@@ -23,7 +23,7 @@ export default function BoardColumn({ column, currentUser, onTaskClick, presence
     <div data-board-column={column.name} className="w-full sm:w-[290px] xl:flex-1 xl:min-w-[260px] xl:max-w-[360px] shrink-0 flex flex-col max-h-full">
 
       {/* Column header */}
-      <div className="mb-3 flex items-center gap-2.5 rounded-xl border border-blue-200/70 bg-blue-100/70 px-3 py-3 shadow-sm dark:border-border dark:bg-card/70">
+      <div className="mb-3 flex items-center gap-2.5 rounded-xl border border-blue-200/70 bg-gradient-to-r from-blue-100/90 to-indigo-50 px-3 py-3 shadow-[0_3px_10px_-7px_rgba(35,67,115,0.3)] dark:border-border dark:from-slate-800 dark:to-slate-900">
         <div
           className="w-2.5 h-2.5 rounded-full shrink-0"
           style={{ backgroundColor: column.color ?? '#6b7280' }}
