@@ -22,7 +22,7 @@ export default function AppNav({ user }: { user: SessionUser }) {
   const [signingOut, setSigningOut] = useState(false)
   const isAdmin = user.role === 'admin' || user.role === 'super_admin'
   const active = pathname !== '/dashboard' ? pathname : searchParams.get('scope') === 'mine' ? 'mine' : searchParams.get('view') === 'calendar' ? 'calendar' : 'board'
-  const navClass = (selected: boolean) => cn('flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors', selected ? 'bg-blue-100/70 text-primary dark:bg-primary/15' : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground')
+  const navClass = (selected: boolean) => cn('flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors', selected ? 'bg-[#dceaff] text-[#174c98] dark:bg-primary/20 dark:text-blue-200' : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground')
 
   async function handleSignOut() {
     setSigningOut(true)
