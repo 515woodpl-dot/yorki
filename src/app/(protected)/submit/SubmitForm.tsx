@@ -177,9 +177,9 @@ export default function SubmitForm({ staffUsers }: SubmitFormProps) {
   )
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-5">
+    <form onSubmit={handleSubmit(onSubmit)} noValidate className="grid items-start gap-4 lg:grid-cols-2">
 
-      <section className="space-y-6 rounded-3xl border border-border/70 bg-card p-5 shadow-sm sm:p-8">
+      <section className="space-y-4 rounded-2xl border border-border/70 bg-card p-5 shadow-sm sm:p-6">
       <div className="flex items-start gap-4 border-b border-border/70 pb-5"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-100 text-sm font-bold text-blue-700 dark:bg-blue-950 dark:text-blue-300">01</span><div><h2 className="text-lg font-semibold tracking-tight">The essentials</h2><p className="mt-1 text-sm text-muted-foreground">Start with the big picture. You can add the details below.</p></div></div>
 
       {/* Title */}
@@ -205,13 +205,13 @@ export default function SubmitForm({ staffUsers }: SubmitFormProps) {
         <textarea
           {...register('description')}
           placeholder="Provide any relevant details, context, or instructions…"
-          rows={4}
+          rows={3}
           className={cn(inputClass, 'py-2.5 resize-none')}
         />
       </div>
 
       </section>
-      <section className="space-y-6 rounded-3xl border border-border/70 bg-card p-5 shadow-sm sm:p-8">
+      <section className="space-y-4 rounded-2xl border border-border/70 bg-card p-5 shadow-sm sm:p-6">
       <div className="flex items-start gap-4 border-b border-border/70 pb-5"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-sm font-bold text-violet-700 dark:bg-violet-950 dark:text-violet-300">02</span><div><h2 className="text-lg font-semibold tracking-tight">People &amp; place</h2><p className="mt-1 text-sm text-muted-foreground">Bring the right people in and add the job location.</p></div></div>
       {/* Assign to */}
       <div className="space-y-1.5">
@@ -266,7 +266,7 @@ export default function SubmitForm({ staffUsers }: SubmitFormProps) {
       </div>
 
       </section>
-      <section className="space-y-6 rounded-3xl border border-border/70 bg-card p-5 shadow-sm sm:p-8">
+      <section className="space-y-4 rounded-2xl border border-border/70 bg-card p-5 shadow-sm sm:p-6">
       <div className="flex items-start gap-4 border-b border-border/70 pb-5"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-sm font-bold text-amber-800 dark:bg-amber-950 dark:text-amber-300">03</span><div><h2 className="text-lg font-semibold tracking-tight">Plan the work</h2><p className="mt-1 text-sm text-muted-foreground">Set the priority, timing, and steps for this request.</p></div></div>
       <div className="space-y-2">
         <label className="flex items-center gap-2 text-sm font-medium text-foreground">
@@ -373,6 +373,7 @@ export default function SubmitForm({ staffUsers }: SubmitFormProps) {
         </div>
       </div>
 
+      <div className="grid gap-4 sm:grid-cols-2">
       {/* Due date */}
       <div className="space-y-1.5">
         <label className="flex items-center gap-2 text-sm font-medium text-foreground">
@@ -410,8 +411,9 @@ export default function SubmitForm({ staffUsers }: SubmitFormProps) {
         </p>
       </div>
 
+      </div>
       </section>
-      <section className="space-y-6 rounded-3xl border border-border/70 bg-card p-5 shadow-sm sm:p-8">
+      <section className="space-y-4 rounded-2xl border border-border/70 bg-card p-5 shadow-sm sm:p-6">
       <div className="flex items-start gap-4 border-b border-border/70 pb-5"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-sm font-bold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">04</span><div><h2 className="text-lg font-semibold tracking-tight">The finishing details</h2><p className="mt-1 text-sm text-muted-foreground">Add any notes or files your team might need.</p></div></div>
       {/* Notes */}
       <div className="space-y-1.5">
@@ -470,7 +472,7 @@ export default function SubmitForm({ staffUsers }: SubmitFormProps) {
 
       </section>
       {/* Submit */}
-      <div className="flex justify-end pb-2">
+      <div className="flex justify-end pb-2 lg:col-span-2">
         <button type="submit" disabled={submitting}
           className={cn(
             'w-full sm:w-auto sm:min-w-56 h-12 rounded-xl font-semibold text-sm',

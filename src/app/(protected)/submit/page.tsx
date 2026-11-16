@@ -11,9 +11,9 @@ export default async function SubmitPage() {
     <div className="flex flex-1 flex-col">
       <div className="mx-auto w-full max-w-5xl px-4 py-6 pb-24 sm:px-8 sm:py-10">
         <Link href="/dashboard" className="mb-5 inline-flex items-center gap-2 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground"><ArrowLeft size={14} /> Back to board</Link>
-        <div className="relative mb-6 overflow-hidden rounded-3xl bg-[#1f3154] px-6 py-7 text-white shadow-lg shadow-[#1f3154]/15 sm:px-9 sm:py-9">
+        <div className="relative mb-5 overflow-hidden rounded-3xl bg-[#1f3154] px-6 py-5 text-white shadow-lg shadow-[#1f3154]/15 sm:px-8 sm:py-6">
           <div aria-hidden="true" className="pointer-events-none absolute -right-8 -top-28 h-64 w-64 rounded-full border-[38px] border-white/[0.05]" />
-          <div className="relative"><p className="mb-3 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-[#c7d9ee]"><Sparkles size={14} /> Let&apos;s make progress</p><h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">New request</h1><p className="mt-3 max-w-lg text-sm leading-6 text-white/75">Give your team the details they need to get the job moving.</p><p className="mt-5 inline-flex rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs text-white/85">Submitting as&nbsp;<span className="font-semibold text-white">{user?.full_name ?? user?.email}</span></p></div>
+          <div className="relative flex flex-wrap items-end justify-between gap-3"><div><p className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-[#c7d9ee]"><Sparkles size={14} /> Let&apos;s make progress</p><h1 className="text-3xl font-semibold tracking-tight">New request</h1><p className="mt-2 text-sm text-white/75">Give your team the details to get the job moving.</p></div><p className="inline-flex rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs text-white/85">Submitting as&nbsp;<span className="font-semibold text-white">{user?.full_name ?? user?.email}</span></p></div>
         </div>
         <SubmitForm staffUsers={staffUsers} />
       </div>
