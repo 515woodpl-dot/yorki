@@ -42,6 +42,8 @@ export async function addComment(
 ): Promise<ActionResult<Comment>> {
   try {
     const user = await requireRole('staff', 'admin', 'super_admin')
+    if (typeof body !== 'string' || !body.trim()) return { success: false, error: 'Comment cannot be empty.' }
+    if (body.length > 20_000) return { success: false, error: 'Comment is too long.' }
     const task = await getTaskById(taskId)
     if (!task || !canAccessTask(user, task)) {
       return { success: false, error: 'You do not have permission to comment on this task.' }

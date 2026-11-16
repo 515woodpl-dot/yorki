@@ -29,6 +29,37 @@ import { sendTaskCompletedEmail, sendTaskSharedEmail, sendTaskSubmittedEmail } f
 import { deleteGoogleCalendarEvent, upsertGoogleCalendarEvent } from '@/lib/integrations/google-calendar'
 import { getAssignedUserIds, isTaskAssignedToUser } from '@/lib/utils'
 
+const VALID_PRIORITIES = new Set(['low', 'normal', 'high', 'urgent'])
+const VALID_STATUSES = new Set(['new', 'pending', 'in_progress', 'completed', 'archived'])
+const MAX_TITLE_LENGTH = 500
+const MAX_DESCRIPTION_LENGTH = 20_000
+const MAX_CUSTOM_FIELDS_BYTES = 100_000
+
+function normalizedTaskTitle(value: unknown) {
+  if (typeof value !== 'string') throw new Error('Title is required.')
+  const title = value.trim()
+  if (!title) throw new Error('Title is required.')
+  if (title.length > MAX_TITLE_LENGTH) throw new Error('Title is too long.')
+  return title
+}
+
+function validateTaskFields(input: Record<string, unknown>) {
+  if ('priority' in input && (typeof input.priority !== 'string' || !VALID_PRIORITIES.has(input.priority))) throw new Error('Invalid priority.')
+  if ('status' in input && (typeof input.status !== 'string' || !VALID_STATUSES.has(input.status))) throw new Error('Invalid status.')
+  if ('description' in input && input.description != null && (typeof input.description !== 'string' || input.description.length > MAX_DESCRIPTION_LENGTH)) throw new Error('Description is too long.')
+  if ('due_date' in input && input.due_date && (typeof input.due_date !== 'string' || Number.isNaN(Date.parse(input.due_date)))) throw new Error('Invalid due date.')
+  if ('custom_fields' in input && input.custom_fields != null) {
+    if (typeof input.custom_fields !== 'object' || Array.isArray(input.custom_fields)) throw new Error('Invalid custom fields.')
+    if (Buffer.byteLength(JSON.stringify(input.custom_fields), 'utf8') > MAX_CUSTOM_FIELDS_BYTES) throw new Error('Custom fields are too large.')
+  }
+}
+
+function withoutPublicShare(task: Task) {
+  const customFields = { ...(task.custom_fields ?? {}) }
+  for (const key of ['share_token', 'recipient_email', 'recipient_emails']) delete customFields[key]
+  return customFields
+}
+
 function normalizePath(p: string) {
   return process.env.NODE_ENV === 'production' ? `/task${p}` : p
 }
@@ -179,6 +210,8 @@ export async function getBoardData(boardId = DEFAULT_BOARD_ID) {
 export async function createTask(input: CreateTaskInput): Promise<ActionResult<Task>> {
   try {
     const user    = await requireRole('staff', 'admin', 'super_admin')
+    validateTaskFields(input as unknown as Record<string, unknown>)
+    const title = normalizedTaskTitle(input.title)
     const columns = await getActiveColumns(DEFAULT_BOARD_ID, false)
     const inbox   = columns.find(c => c.is_default)
     if (!inbox) throw new Error('Inbox column not found.')
@@ -213,7 +246,7 @@ export async function createTask(input: CreateTaskInput): Promise<ActionResult<T
     const task = await dbCreateTask({
       boardId:      DEFAULT_BOARD_ID,
       columnId:     inbox.id,
-      title:        input.title,
+      title,
       description:  input.description,
       priority:     input.priority ?? 'normal',
       submittedBy:  user.id,
@@ -333,6 +366,10 @@ export async function updateTask(input: UpdateTaskInput): Promise<ActionResult<T
     const user = await requireRole('staff', 'admin', 'super_admin')
     const existingTask = await getTaskById(input.id)
     if (!existingTask) throw new Error('Task not found')
+    validateTaskFields(input as unknown as Record<string, unknown>)
+    if ('status' in input || 'column_id' in input || 'position' in input) {
+      throw new Error('Use the task lifecycle actions to move or change task status.')
+    }
     const previousRecipientEmails = getRecipientEmailsFromTask(existingTask)
 
     const isAdmin = user.role === 'admin' || user.role === 'super_admin'
@@ -372,14 +409,7 @@ export async function updateTask(input: UpdateTaskInput): Promise<ActionResult<T
     }
 
     if ('title' in input) {
-      const normalizedTitle = input.title?.trim() ?? ''
-      if (!normalizedTitle) {
-        throw new Error('Title is required.')
-      }
-      if (normalizedTitle.length > 500) {
-        throw new Error('Title is too long.')
-      }
-      updates.title = normalizedTitle
+      updates.title = normalizedTaskTitle(input.title)
     }
 
     if ('due_date' in input) {
@@ -483,6 +513,8 @@ export async function completeTask(taskId: string): Promise<ActionResult<Task>> 
     const user    = await requireRole('admin', 'super_admin')
     const task    = await getTaskById(taskId)
     if (!task) throw new Error('Task not found')
+    if (task.status === 'archived') throw new Error('Restore this task before completing it.')
+    if (task.status === 'completed') throw new Error('Task is already completed.')
 
     const columns     = await getActiveColumns(task.board_id, false)
     const completedCol = columns.find(c => c.name.toLowerCase() === 'completed')
@@ -516,6 +548,7 @@ export async function reopenTask(taskId: string): Promise<ActionResult<Task>> {
     const user   = await requireRole('admin', 'super_admin')
     const task   = await getTaskById(taskId)
     if (!task) throw new Error('Task not found')
+    if (task.status !== 'completed') throw new Error('Only completed tasks can be reopened.')
 
     const columns = await getActiveColumns(task.board_id, false)
     const inbox   = columns.find(c => c.is_default)
@@ -547,12 +580,17 @@ export async function archiveTask(taskId: string): Promise<ActionResult> {
     const user   = await requireRole('admin', 'super_admin')
     const task   = await getTaskById(taskId)
     if (!task) throw new Error('Task not found')
+    if (task.status === 'archived') throw new Error('Task is already archived.')
 
     const columns   = await getActiveColumns(task.board_id, true)
     const archiveCol = columns.find(c => c.is_archive)
     if (!archiveCol) throw new Error('Archive column not configured.')
 
-    const updated = await dbUpdateTask(taskId, { status: 'archived', column_id: archiveCol.id })
+    const updated = await dbUpdateTask(taskId, {
+      status: 'archived',
+      column_id: archiveCol.id,
+      custom_fields: withoutPublicShare(task),
+    })
     if (!updated) throw new Error('Task not found')
     await createActivityLog({
       actor_id: user.id, task_id: taskId,
@@ -574,6 +612,7 @@ export async function restoreTask(taskId: string, targetColumnId: string): Promi
     const user = await requireRole('admin', 'super_admin')
     const task = await getTaskById(taskId)
     if (!task) throw new Error('Task not found')
+    if (task.status !== 'archived') throw new Error('Only archived tasks can be restored.')
 
     const columns = await getActiveColumns(task.board_id, false)
     const targetColumn = columns.find((column) => column.id === targetColumnId)
@@ -581,18 +620,11 @@ export async function restoreTask(taskId: string, targetColumnId: string): Promi
       throw new Error('Restore column is invalid.')
     }
 
-    const nextCustomFields = { ...(task.custom_fields ?? {}) }
-    delete nextCustomFields.share_token
-    delete nextCustomFields.recipient_email
-    delete nextCustomFields.recipient_emails
-    delete nextCustomFields.assigned_user_id
-    delete nextCustomFields.assigned_user_ids
-    delete nextCustomFields.assigned_user_names
-
     const updated = await dbUpdateTask(taskId, {
       status: 'new',
       column_id: targetColumnId,
-      custom_fields: nextCustomFields,
+      completed_at: null,
+      custom_fields: withoutPublicShare(task),
     })
     if (!updated) throw new Error('Task not found')
     await createActivityLog({

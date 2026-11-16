@@ -250,3 +250,65 @@ test('board dates respect business timezone and completed tasks are not overdue'
   assert.equal(view.taskDueLabel({ ...task, due_date: '2026-11-16' }, '2026-11-16'), 'Today')
   assert.equal(view.taskDueLabel({ ...task, due_date: '2026-11-17' }, '2026-11-16'), 'Tomorrow')
 })
+
+test('archiving revokes public sharing and lifecycle actions reject invalid replays', async () => {
+  let task = {
+    id: 'shared', board_id: 'board', column_id: 'inbox', status: 'pending', submitted_by: 'admin',
+    assigned_to: null, custom_fields: { share_token: 'public-secret', recipient_email: 'client@example.com', keep: 'yes' },
+  }
+  const columns = [
+    { id: 'inbox', board_id: 'board', name: 'Inbox', is_default: true, is_archive: false },
+    { id: 'completed', board_id: 'board', name: 'Completed', is_default: false, is_archive: false },
+    { id: 'archive', board_id: 'board', name: 'Archive', is_default: false, is_archive: true },
+  ]
+  const actions = loadTs('src/lib/actions/tasks.ts', {
+    'next/cache': { revalidatePath() {} },
+    '@/lib/auth': { requireRole: async () => ({ id: 'admin', role: 'super_admin', email: 'admin@example.com' }) },
+    '@/lib/local-data': {
+      DEFAULT_BOARD_ID: 'board', getTaskById: async () => task, getTaskByShareToken: async token => task.custom_fields.share_token === token ? task : null,
+      getActiveColumns: async (_board, includeArchive) => columns.filter(column => includeArchive || !column.is_archive),
+      getTaskAttachments: async () => [], findUser: () => null, createActivityLog: async () => {},
+      updateTask: async (_id, updates) => { task = { ...task, ...updates }; return task },
+    },
+    './email': { sendTaskCompletedEmail: async () => {} },
+    '@/lib/integrations/google-calendar': { upsertGoogleCalendarEvent: async () => ({ status: 'skipped' }), deleteGoogleCalendarEvent: async () => ({ status: 'skipped' }) },
+    '@/lib/utils': { getAssignedUserIds: () => [], isTaskAssignedToUser: () => false },
+  })
+  assert.equal((await actions.archiveTask('shared')).success, true)
+  assert.equal(task.status, 'archived')
+  assert.equal(task.custom_fields.share_token, undefined)
+  assert.equal(task.custom_fields.recipient_email, undefined)
+  assert.equal(task.custom_fields.keep, 'yes')
+  assert.equal(await actions.getSharedTaskData('public-secret'), null)
+  assert.equal((await actions.reopenTask('shared')).success, false)
+  assert.equal((await actions.completeTask('shared')).success, false)
+  assert.equal((await actions.restoreTask('shared', 'inbox')).success, true)
+  assert.equal(task.status, 'new')
+  assert.equal((await actions.restoreTask('shared', 'inbox')).success, false)
+})
+
+test('task actions reject blank or corrupt values before writing', async () => {
+  let writes = 0
+  const task = { id: 't', board_id: 'board', column_id: 'inbox', status: 'new', submitted_by: 'admin', assigned_to: null, custom_fields: {} }
+  const actions = loadTs('src/lib/actions/tasks.ts', {
+    'next/cache': { revalidatePath() {} },
+    '@/lib/auth': { requireRole: async () => ({ id: 'admin', role: 'super_admin' }) },
+    '@/lib/local-data': {
+      DEFAULT_BOARD_ID: 'board', getTaskById: async () => task,
+      getActiveColumns: async () => [{ id: 'inbox', board_id: 'board', is_default: true, is_archive: false }],
+      getActiveTasks: async () => [], findUser: () => null, createActivityLog: async () => {},
+      createTask: async () => { writes++; return task }, updateTask: async () => { writes++; return task },
+    },
+    './email': {},
+    '@/lib/integrations/google-calendar': { upsertGoogleCalendarEvent: async () => ({ status: 'skipped' }) },
+    '@/lib/utils': { getAssignedUserIds: () => [], isTaskAssignedToUser: () => false },
+  })
+  assert.equal((await actions.createTask({ title: '   ', priority: 'normal' })).success, false)
+  assert.equal((await actions.createTask({ title: 'Valid', priority: 'nuclear' })).success, false)
+  assert.equal((await actions.updateTask({ id: 't', status: 'banana' })).success, false)
+  assert.equal((await actions.updateTask({ id: 't', priority: 'nuclear' })).success, false)
+  assert.equal((await actions.updateTask({ id: 't', due_date: 'not-a-date' })).success, false)
+  assert.equal((await actions.updateTask({ id: 't', column_id: 'missing' })).success, false)
+  assert.equal((await actions.updateTask({ id: 't', status: 'completed' })).success, false)
+  assert.equal(writes, 0)
+})
