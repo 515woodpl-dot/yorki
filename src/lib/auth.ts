@@ -7,7 +7,7 @@
  *
  * Security:
  *   - Deactivated users blocked at login + session lookup
- *   - Brute-force: 5 attempts per email per 15 min (in-memory, resets on server restart)
+ *   - Brute-force: 5 attempts per email per 15 min (persistent SQLite counter)
  *   - Expired sessions pruned from DB on every login
  *   - Sessions expire after 30 days
  */
@@ -17,58 +17,12 @@ import { redirect } from 'next/navigation'
 import bcrypt from 'bcryptjs'
 import { randomUUID } from 'node:crypto'
 import { getDb } from './db'
+import { reserveLoginAttempt, clearLoginAttempts } from './login-rate-limit'
 import type { SessionUser, UserProfile, UserRole } from './types'
 
 const COOKIE_NAME  = 'yorki_session'
 const SESSION_DAYS = 30
 const SESSION_MS   = SESSION_DAYS * 24 * 60 * 60 * 1000
-
-// ─── Rate limiting (in-memory) ────────────────────────────────────────────────
-// Keyed by lowercase email. Resets on server restart.
-// For production with multiple workers, replace with Redis or DB-backed counter.
-
-const MAX_ATTEMPTS   = 5
-const LOCKOUT_MS     = 15 * 60 * 1000  // 15 minutes
-
-interface AttemptRecord { count: number; firstAt: number }
-const loginAttempts = new Map<string, AttemptRecord>()
-
-function checkRateLimit(email: string): { allowed: boolean; remainingMs?: number } {
-  const key    = email.toLowerCase()
-  const now    = Date.now()
-  const record = loginAttempts.get(key)
-
-  if (!record) return { allowed: true }
-
-  // Reset window if lockout period has passed
-  if (now - record.firstAt > LOCKOUT_MS) {
-    loginAttempts.delete(key)
-    return { allowed: true }
-  }
-
-  if (record.count >= MAX_ATTEMPTS) {
-    const remainingMs = LOCKOUT_MS - (now - record.firstAt)
-    return { allowed: false, remainingMs }
-  }
-
-  return { allowed: true }
-}
-
-function recordFailedAttempt(email: string) {
-  const key    = email.toLowerCase()
-  const now    = Date.now()
-  const record = loginAttempts.get(key)
-
-  if (!record || now - record.firstAt > LOCKOUT_MS) {
-    loginAttempts.set(key, { count: 1, firstAt: now })
-  } else {
-    loginAttempts.set(key, { count: record.count + 1, firstAt: record.firstAt })
-  }
-}
-
-function clearAttempts(email: string) {
-  loginAttempts.delete(email.toLowerCase())
-}
 
 // ─── User mapping ─────────────────────────────────────────────────────────────
 
@@ -82,6 +36,7 @@ function mapUser(row: Record<string, unknown>): UserProfile {
 // ─── Password ─────────────────────────────────────────────────────────────────
 
 export async function hashPassword(plain: string): Promise<string> {
+  if (Buffer.byteLength(plain, 'utf8') > 72) throw new Error('Password must be at most 72 UTF-8 bytes.')
   return bcrypt.hash(plain, 12)
 }
 
@@ -172,22 +127,24 @@ export async function loginWithPassword(
   password: string
 ): Promise<{ success: true; user: SessionUser } | { success: false; error: string }> {
   try {
+    if (typeof email !== 'string' || typeof password !== 'string' || email.length > 254 || password.length > 1024) {
+      return { success: false, error: 'Incorrect email or password.' }
+    }
     const normalised = email.trim().toLowerCase()
+    const db = getDb()
 
     // Rate limit check
-    const limit = checkRateLimit(normalised)
+    const limit = reserveLoginAttempt(db, normalised)
     if (!limit.allowed) {
-      const mins = Math.ceil((limit.remainingMs ?? LOCKOUT_MS) / 60000)
+      const mins = Math.ceil((limit.remainingMs ?? 900000) / 60000)
       return { success: false, error: `Too many attempts. Try again in ${mins} minute${mins !== 1 ? 's' : ''}.` }
     }
 
-    const db  = getDb()
     const row = db.prepare(`
       SELECT * FROM users WHERE LOWER(email) = ? AND is_active = 1
     `).get(normalised) as Record<string, unknown> | undefined
 
     if (!row) {
-      recordFailedAttempt(normalised)
       return { success: false, error: 'Incorrect email or password.' }
     }
 
@@ -198,12 +155,11 @@ export async function loginWithPassword(
 
     const ok = await verifyPassword(password, hash)
     if (!ok) {
-      recordFailedAttempt(normalised)
       return { success: false, error: 'Incorrect email or password.' }
     }
 
     // Success — clear rate limit and create session
-    clearAttempts(normalised)
+    clearLoginAttempts(db, normalised)
     const user = mapUser(row)
     await createSession(user.id)
 

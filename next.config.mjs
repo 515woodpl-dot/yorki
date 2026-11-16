@@ -7,22 +7,13 @@ const nextConfig = {
   // resolve relative to this path — no manual prefixing needed.
   ...(isProd ? { basePath: '/task' } : {}),
 
-  // ─── Images ─────────────────────────────────────────────────────────
-  images: {
-    remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: '**',
-      },
-    ],
-  },
-
   // ─── Security Headers ────────────────────────────────────────────────
   async headers() {
     return [
       {
         source: '/(.*)',
         headers: [
+          ...(isProd ? [{ key: 'Strict-Transport-Security', value: 'max-age=31536000' }] : []),
           { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },

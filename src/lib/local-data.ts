@@ -42,7 +42,8 @@ function mapComment(row: Record<string, unknown>): Comment {
 }
 
 function mapUser(row: Record<string, unknown>): UserProfile {
-  return { ...(row as unknown as UserProfile), is_active: row.is_active === 1 }
+  const { password_hash: _passwordHash, ...profile } = row
+  return { ...(profile as unknown as UserProfile), is_active: row.is_active === 1 }
 }
 
 function mapColumn(row: Record<string, unknown>): Column {

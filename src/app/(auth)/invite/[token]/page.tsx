@@ -5,10 +5,11 @@ import InviteForm from './InviteForm'
 export const dynamic = 'force-dynamic'
 const APP_BASE_PATH = process.env.NODE_ENV === 'production' ? '/task' : ''
 
-interface Props { params: { token: string } }
+interface Props { params: Promise<{ token: string }> }
 
 export default async function InvitePage({ params }: Props) {
-  const invite = await validateInvite(params.token)
+  const { token } = await params
+  const invite = await validateInvite(token)
 
   if (!invite) {
     return (
@@ -62,7 +63,7 @@ export default async function InvitePage({ params }: Props) {
             </span>
           </div>
 
-          <InviteForm token={params.token} />
+          <InviteForm token={token} />
         </div>
 
         <p className="text-center text-[11px] text-muted-foreground/40 mt-6">

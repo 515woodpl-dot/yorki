@@ -3,7 +3,7 @@
 # Single runtime image that builds once and runs with `next start`
 # ─────────────────────────────────────────────────────────────────────────────
 
-FROM node:20-alpine
+FROM node:24-alpine
 
 RUN apk add --no-cache libc6-compat python3 make g++ sqlite
 

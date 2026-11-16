@@ -1,12 +1,16 @@
-'use server'
+import 'server-only'
 
-import nodemailer from 'nodemailer'
+import nodemailer, { type Transporter } from 'nodemailer'
 import { Resend } from 'resend'
 import { getSetting } from '@/lib/local-data'
 import type { Task, SessionUser, BrandingSettings, EmailSettings } from '@/lib/types'
 import { formatDateTime } from '@/lib/utils'
 
-let transporterPromise: Promise<nodemailer.Transporter> | null = null
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]!))
+}
+
+let transporterPromise: Promise<Transporter> | null = null
 let resendClient: Resend | null = null
 
 function cleanEnvValue(value: string | undefined | null) {
@@ -84,13 +88,14 @@ async function sendEmail(options: {
 
   if (resendApiKey) {
     resendClient ??= new Resend(resendApiKey)
-    await resendClient.emails.send({
+    const result = await resendClient.emails.send({
       from,
       to: Array.isArray(options.to) ? options.to : [options.to],
-      reply_to: replyTo,
+      replyTo,
       subject: options.subject,
       html: options.html,
     })
+    if (result.error) throw new Error(result.error.message)
     return true
   }
 
@@ -195,20 +200,20 @@ function buildSubmittedHtml({ task, submitter, branding }: { task: Task; submitt
   <table width="100%" cellpadding="0" cellspacing="0" style="padding:32px 16px;"><tr><td>
   <table width="600" align="center" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:#fff;border-radius:12px;">
   <tr><td style="background:#1e293b;padding:24px 32px;">
-    <p style="margin:0;color:#94a3b8;font-size:13px;">${appName}</p>
+    <p style="margin:0;color:#94a3b8;font-size:13px;">${escapeHtml(appName)}</p>
     <h1 style="margin:4px 0 0;color:#f8fafc;font-size:20px;">New Request Submitted</h1>
   </td></tr>
   <tr><td style="padding:32px;">
     <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:20px;margin-bottom:24px;">
       <span style="background:${pc};color:#fff;font-size:11px;padding:2px 8px;border-radius:4px;">${task.priority.toUpperCase()}</span>
-      <h2 style="margin:8px 0;color:#0f172a;font-size:18px;">${task.title}</h2>
-      ${task.description ? `<p style="margin:0;color:#64748b;font-size:14px;">${task.description}</p>` : ''}
+      <h2 style="margin:8px 0;color:#0f172a;font-size:18px;">${escapeHtml(task.title)}</h2>
+      ${task.description ? `<p style="margin:0;color:#64748b;font-size:14px;">${escapeHtml(task.description)}</p>` : ''}
     </div>
-    <p style="color:#475569;">Submitted by: <strong>${submitter.full_name ?? submitter.email}</strong></p>
+    <p style="color:#475569;">Submitted by: <strong>${escapeHtml(submitter.full_name ?? submitter.email)}</strong></p>
     <a href="${appUrl}/dashboard" style="display:inline-block;background:#1e293b;color:#f8fafc;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;">View on Board →</a>
   </td></tr>
   <tr><td style="background:#f8fafc;padding:16px 32px;border-top:1px solid #e2e8f0;">
-    <p style="margin:0;color:#94a3b8;font-size:12px;">${appName} — Internal Task Management</p>
+    <p style="margin:0;color:#94a3b8;font-size:12px;">${escapeHtml(appName)} — Internal Task Management</p>
   </td></tr>
   </table></td></tr></table></body></html>`
 }
@@ -221,18 +226,18 @@ function buildCompletedHtml({ task, completedBy, branding }: { task: Task; compl
   <table width="100%" cellpadding="0" cellspacing="0" style="padding:32px 16px;"><tr><td>
   <table width="600" align="center" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:#fff;border-radius:12px;">
   <tr><td style="background:#065f46;padding:24px 32px;">
-    <p style="margin:0;color:#6ee7b7;font-size:13px;">${appName}</p>
+    <p style="margin:0;color:#6ee7b7;font-size:13px;">${escapeHtml(appName)}</p>
     <h1 style="margin:4px 0 0;color:#ecfdf5;font-size:20px;">✓ Request Completed</h1>
   </td></tr>
   <tr><td style="padding:32px;">
     <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:20px;margin-bottom:24px;">
-      <h2 style="margin:0 0 8px;color:#0f172a;font-size:18px;">${task.title}</h2>
+      <h2 style="margin:0 0 8px;color:#0f172a;font-size:18px;">${escapeHtml(task.title)}</h2>
     </div>
-    <p style="color:#475569;">Completed by: <strong>${completedBy.full_name ?? completedBy.email}</strong> at ${completedAt}</p>
+    <p style="color:#475569;">Completed by: <strong>${escapeHtml(completedBy.full_name ?? completedBy.email)}</strong> at ${completedAt}</p>
     <a href="${appUrl}/dashboard" style="display:inline-block;background:#065f46;color:#ecfdf5;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;">View on Board →</a>
   </td></tr>
   <tr><td style="background:#f8fafc;padding:16px 32px;border-top:1px solid #e2e8f0;">
-    <p style="margin:0;color:#94a3b8;font-size:12px;">${appName} — Internal Task Management</p>
+    <p style="margin:0;color:#94a3b8;font-size:12px;">${escapeHtml(appName)} — Internal Task Management</p>
   </td></tr>
   </table></td></tr></table></body></html>`
 }
@@ -263,28 +268,28 @@ function buildSharedTaskHtml({
       <table width="560" align="center" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:18px;overflow:hidden;box-shadow:0 14px 40px rgba(47,54,80,0.10);border:1px solid #E7DED2;">
         <tr>
           <td style="background:linear-gradient(135deg,#2F3650 0%,#47577A 100%);padding:32px 34px;">
-            <p style="margin:0 0 6px;color:#D9E2EE;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;">${appName}</p>
+            <p style="margin:0 0 6px;color:#D9E2EE;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;">${escapeHtml(appName)}</p>
             <h1 style="margin:0;color:#F6F3EE;font-size:24px;font-weight:700;letter-spacing:-0.03em;">A task was shared with you</h1>
           </td>
         </tr>
         <tr>
           <td style="padding:32px 34px;">
             <p style="margin:0 0 18px;font-size:15px;line-height:1.7;color:#4E5F8C;">
-              ${sender.full_name ?? sender.email} sent you a task update from ${appName}. Use the button below to view the latest details.
+              ${escapeHtml(sender.full_name ?? sender.email)} sent you a task update from ${escapeHtml(appName)}. Use the button below to view the latest details.
             </p>
 
             <div style="border:1px solid #E7DED2;border-radius:16px;padding:22px 22px 18px;background:#FCFAF7;">
               <div style="margin-bottom:14px;">
                 <span style="display:inline-block;background:${priorityColor};color:#ffffff;font-size:11px;font-weight:700;padding:5px 10px;border-radius:999px;text-transform:uppercase;letter-spacing:0.08em;">${task.priority}</span>
               </div>
-              <h2 style="margin:0 0 10px;font-size:22px;line-height:1.25;color:#1F2A44;">${task.title}</h2>
-              ${task.description ? `<p style="margin:0 0 16px;font-size:14px;line-height:1.7;color:#5C6E91;">${task.description.replace(/\n/g, '<br>')}</p>` : ''}
+              <h2 style="margin:0 0 10px;font-size:22px;line-height:1.25;color:#1F2A44;">${escapeHtml(task.title)}</h2>
+              ${task.description ? `<p style="margin:0 0 16px;font-size:14px;line-height:1.7;color:#5C6E91;">${escapeHtml(task.description).replace(/\n/g, '<br>')}</p>` : ''}
               <table width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;color:#5C6E91;">
                 <tr>
                   <td style="padding:0 0 10px;"><strong style="color:#2F3650;">Status:</strong> ${task.status.replace(/_/g, ' ')}</td>
                   <td style="padding:0 0 10px;"><strong style="color:#2F3650;">Due:</strong> ${dueDate}</td>
                 </tr>
-                ${address ? `<tr><td colspan="2" style="padding:0;"><strong style="color:#2F3650;">Address:</strong> ${address.replace(/\n/g, ', ')}</td></tr>` : ''}
+                ${address ? `<tr><td colspan="2" style="padding:0;"><strong style="color:#2F3650;">Address:</strong> ${escapeHtml(address).replace(/\n/g, ', ')}</td></tr>` : ''}
               </table>
             </div>
 
@@ -318,7 +323,7 @@ export async function sendInviteEmail(
     })
 
     if (!sent) {
-      console.log(`\n📧 [Invite] ${fullName} <${to}>\n   Role: ${role}\n   URL:  ${inviteUrl}\n`)
+      console.log(`\n📧 [Invite] ${escapeHtml(fullName)} <${to}>\n   Role: ${role}\n   URL:  ${inviteUrl}\n`)
       return
     }
   } catch (err) {
@@ -344,7 +349,7 @@ function buildInviteHtml({
         <!-- Header -->
         <tr>
           <td style="background:linear-gradient(135deg,#2F3650 0%,#3A4A73 100%);padding:32px;text-align:center;">
-            <p style="margin:0 0 4px;color:#8896BA;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;">${appName}</p>
+            <p style="margin:0 0 4px;color:#8896BA;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;">${escapeHtml(appName)}</p>
             <h1 style="margin:0;color:#F0F2F7;font-size:22px;font-weight:600;letter-spacing:-0.3px;">You're invited</h1>
           </td>
         </tr>
@@ -352,9 +357,9 @@ function buildInviteHtml({
         <!-- Body -->
         <tr>
           <td style="padding:36px 32px;">
-            <p style="margin:0 0 8px;color:#0F1220;font-size:16px;font-weight:600;">Hi ${fullName} 👋</p>
+            <p style="margin:0 0 8px;color:#0F1220;font-size:16px;font-weight:600;">Hi ${escapeHtml(fullName)} 👋</p>
             <p style="margin:0 0 24px;color:#4E5F8C;font-size:14px;line-height:1.7;">
-              You've been added to <strong>${appName}</strong> as a <strong>${roleLabel}</strong>.
+              You've been added to <strong>${escapeHtml(appName)}</strong> as a <strong>${roleLabel}</strong>.
               Click the button below to set your password and access your workspace.
             </p>
 
@@ -387,7 +392,7 @@ function buildInviteHtml({
         <tr>
           <td style="background:#F0F2F7;padding:16px 32px;border-top:1px solid #D8DCE8;">
             <p style="margin:0;color:#8896BA;font-size:11px;text-align:center;">
-              ${appName} · Internal workspace
+              ${escapeHtml(appName)} · Internal workspace
             </p>
           </td>
         </tr>

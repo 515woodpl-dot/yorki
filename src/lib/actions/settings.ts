@@ -38,6 +38,14 @@ function getActiveAdminCount() {
   return row.count
 }
 
+function assertMayManageUser(actor: { role: string }, userId: string) {
+  const target = getDb().prepare('SELECT role FROM users WHERE id = ?').get(userId) as { role: string } | undefined
+  if (!target) throw new Error('User not found.')
+  if (target.role === 'super_admin' && actor.role !== 'super_admin') {
+    throw new Error('Only a super admin can manage this account.')
+  }
+}
+
 const BACKUP_HEARTBEAT_PATH = '/var/lib/yorki/.last_backup_ok'
 const BACKUP_LOG_PATH = '/var/log/yorki-rclone.log'
 const BACKUP_STALE_MINUTES = 10 * 60
@@ -203,7 +211,10 @@ export async function getAllUsersAction(): Promise<UserProfile[]> {
 export async function createUser(email: string, fullName: string, role: 'staff' | 'admin'): Promise<ActionResult> {
   try {
     const actor = await requireRole('admin', 'super_admin')
+    if (role !== 'staff' && role !== 'admin') throw new Error('Invalid role.')
     const normalizedEmail = email.trim().toLowerCase()
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) throw new Error('Enter a valid email address.')
+    if (!fullName.trim()) throw new Error('Enter a full name.')
     const existingUsers = await getAllUsers()
     if (existingUsers.some((user) => user.email?.trim().toLowerCase() === normalizedEmail)) {
       return { success: false, error: 'A user with that email already exists.' }
@@ -233,6 +244,8 @@ export async function createUser(email: string, fullName: string, role: 'staff' 
 export async function updateUserRole(userId: string, newRole: 'staff' | 'admin'): Promise<ActionResult> {
   try {
     const actor = await requireRole('admin', 'super_admin')
+    assertMayManageUser(actor, userId)
+    if (newRole !== 'staff' && newRole !== 'admin') throw new Error('Invalid role.')
     if (actor.id === userId) {
       return { success: false, error: 'You cannot change your own role.' }
     }
@@ -259,6 +272,7 @@ export async function updateUserRole(userId: string, newRole: 'staff' | 'admin')
 export async function toggleUserActive(userId: string, isActive: boolean): Promise<ActionResult> {
   try {
     const actor = await requireRole('admin', 'super_admin')
+    assertMayManageUser(actor, userId)
     if (actor.id === userId && !isActive) {
       return { success: false, error: 'You cannot deactivate your own account.' }
     }
@@ -284,11 +298,17 @@ export async function toggleUserActive(userId: string, isActive: boolean): Promi
 
 export async function setUserPassword(userId: string, password: string): Promise<ActionResult> {
   try {
-    await requireRole('admin', 'super_admin')
+    const actor = await requireRole('admin', 'super_admin')
+    assertMayManageUser(actor, userId)
     if (password.length < 8) return { success: false, error: 'Password must be at least 8 characters.' }
     const hash = await hashPassword(password)
-    getDb().prepare('UPDATE users SET password_hash=?, updated_at=? WHERE id=?')
-      .run(hash, new Date().toISOString(), userId)
+    const db = getDb()
+    db.transaction(() => {
+      db.prepare('UPDATE users SET password_hash=?, updated_at=? WHERE id=?')
+        .run(hash, new Date().toISOString(), userId)
+      db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId)
+      db.prepare('DELETE FROM invites WHERE user_id = ?').run(userId)
+    })()
     return { success: true, data: undefined }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Unknown error' }
@@ -298,6 +318,7 @@ export async function setUserPassword(userId: string, password: string): Promise
 export async function deleteUser(userId: string): Promise<ActionResult> {
   try {
     const actor = await requireRole('admin', 'super_admin')
+    assertMayManageUser(actor, userId)
     if (actor.id === userId) {
       return { success: false, error: 'You cannot delete your own account.' }
     }

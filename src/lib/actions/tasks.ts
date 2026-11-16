@@ -49,9 +49,9 @@ function fallbackProfile(id: string | null) {
   }
 }
 
-async function hydrateTask(task: Task): Promise<TaskWithRelations> {
+async function hydrateTask(task: Task, includeInternal = true): Promise<TaskWithRelations> {
   const [comments, attachments] = await Promise.all([
-    getTaskComments(task.id),
+    getTaskComments(task.id, includeInternal),
     getTaskAttachments(task.id),
   ])
   const columns = await getActiveColumns(task.board_id, true)
@@ -169,7 +169,7 @@ export async function getBoardData(boardId = DEFAULT_BOARD_ID) {
         visibleTasks
           .filter(t => t.column_id === col.id)
           .sort((a, b) => a.position - b.position)
-          .map(hydrateTask)
+          .map(task => hydrateTask(task, user.role !== 'staff'))
       ),
     }))
   )
@@ -285,7 +285,9 @@ export async function moveTask(input: MoveTaskInput): Promise<ActionResult> {
     const columns = await getActiveColumns(task.board_id, true)
     const fromCol = columns.find(c => c.id === task.column_id)
     const toCol   = columns.find(c => c.id === input.new_column_id)
-    if (toCol?.is_archive) {
+    if (!toCol) throw new Error('Destination column not found.')
+    if (!Number.isFinite(input.new_position)) throw new Error('Invalid task position.')
+    if (toCol.is_archive) {
       throw new Error('Use the archive action to archive tasks.')
     }
 
@@ -352,19 +354,15 @@ export async function updateTask(input: UpdateTaskInput): Promise<ActionResult<T
     let shareEmailRecipients: string[] = []
 
     if ('custom_fields' in input && typeof input.custom_fields === 'object' && input.custom_fields) {
-      const nextCustomFields = {
-        ...(existingTask.custom_fields ?? {}),
-        ...(input.custom_fields as Record<string, unknown>),
-      }
-
+      const incoming = { ...(input.custom_fields as Record<string, unknown>) }
+      // Staff edits must preserve server-managed sharing and assignment fields.
       if (!isAdmin) {
-        delete nextCustomFields.share_token
-        delete nextCustomFields.recipient_email
-        delete nextCustomFields.recipient_emails
-        delete nextCustomFields.assigned_user_id
-        delete nextCustomFields.assigned_user_ids
-        delete nextCustomFields.assigned_user_names
+        for (const key of ['share_token', 'recipient_email', 'recipient_emails',
+          'assigned_user_id', 'assigned_user_ids', 'assigned_user_name', 'assigned_user_names']) {
+          delete incoming[key]
+        }
       }
+      const nextCustomFields = { ...(existingTask.custom_fields ?? {}), ...incoming }
 
       updates.custom_fields = nextCustomFields
     }

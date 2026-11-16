@@ -1,24 +1,17 @@
 import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 
-export async function GET() {
-  try {
-    const db = getDb()
-    const result = db.prepare('PRAGMA integrity_check').get() as { integrity_check: string }
-    const userCount = (db.prepare('SELECT COUNT(*) as n FROM users').get() as { n: number }).n
-    const taskCount = (db.prepare('SELECT COUNT(*) as n FROM tasks WHERE deleted_at IS NULL').get() as { n: number }).n
+export const dynamic = 'force-dynamic'
 
-    return NextResponse.json({
-      status: 'ok',
-      integrity: result.integrity_check,
-      users: userCount,
-      tasks: taskCount,
-      time: new Date().toISOString(),
-    })
+export async function GET() {
+  const headers = { 'Cache-Control': 'no-store' }
+  try {
+    // Liveness must stay cheap as task volume grows. Full integrity checks
+    // belong in the backup/restore procedure, not every public health request.
+    getDb().prepare('SELECT 1').get()
+    return NextResponse.json({ status: 'ok', time: new Date().toISOString() }, { headers })
   } catch (err) {
-    return NextResponse.json({
-      status: 'error',
-      error: err instanceof Error ? err.message : 'Unknown',
-    }, { status: 500 })
+    console.error('[health] database unavailable', err)
+    return NextResponse.json({ status: 'error' }, { status: 503, headers })
   }
 }

@@ -27,7 +27,11 @@ export interface InviteWithUser extends InviteRecord {
 // ─── Create invite ────────────────────────────────────────────────────────────
 
 export async function createInvite(userId: string): Promise<{ token: string; url: string }> {
+  const actor = await requireRole('admin', 'super_admin')
   const db      = getDb()
+  const target = db.prepare('SELECT id, role FROM users WHERE id = ? AND is_active = 1').get(userId) as { id: string; role: string } | undefined
+  if (!target) throw new Error('Active user not found.')
+  if (target.role === 'super_admin' && actor.role !== 'super_admin') throw new Error('Only a super admin can reset this account.')
   const token   = randomBytes(32).toString('hex')
   const now     = new Date()
   const expires = new Date(now.getTime() + INVITE_HOURS * 60 * 60 * 1000)
@@ -40,7 +44,7 @@ export async function createInvite(userId: string): Promise<{ token: string; url
     VALUES (?, ?, ?, ?, NULL, ?)
   `).run(randomBytes(8).toString('hex'), userId, token, expires.toISOString(), now.toISOString())
 
-  const appUrl = process.env.APP_URL ?? 'http://localhost:3001'
+  const appUrl = (process.env.APP_URL ?? 'http://localhost:3000').replace(/\/$/, '')
   const url    = `${appUrl}/invite/${token}`
 
   return { token, url }
@@ -59,6 +63,7 @@ export async function validateInvite(token: string): Promise<InviteWithUser | nu
     WHERE i.token = ?
       AND i.expires_at > ?
       AND i.used_at IS NULL
+      AND u.is_active = 1
   `).get(token, now) as InviteWithUser | undefined
 
   return row ?? null
@@ -83,11 +88,22 @@ export async function acceptInvite(
     const db   = getDb()
     const hash = await hashPassword(password)
 
-    db.prepare(`UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?`)
-      .run(hash, new Date().toISOString(), invite.user_id)
-
-    db.prepare(`UPDATE invites SET used_at = ? WHERE token = ?`)
-      .run(new Date().toISOString(), token)
+    // Recheck after hashing: another request may have consumed or revoked the invite.
+    const accepted = db.transaction(() => {
+      const now = new Date().toISOString()
+      const claimed = db.prepare(`
+        UPDATE invites SET used_at = ?
+        WHERE token = ? AND used_at IS NULL AND expires_at > ?
+          AND EXISTS (SELECT 1 FROM users WHERE id = invites.user_id AND is_active = 1)
+      `).run(now, token, now)
+      if (claimed.changes !== 1) return false
+      db.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?')
+        .run(hash, now, invite.user_id)
+      db.prepare('DELETE FROM sessions WHERE user_id = ?').run(invite.user_id)
+      db.prepare('DELETE FROM invites WHERE user_id = ? AND used_at IS NULL').run(invite.user_id)
+      return true
+    })()
+    if (!accepted) return { success: false, error: 'This invite link is invalid or has expired.' }
 
     return { success: true, data: undefined }
   } catch (err) {
