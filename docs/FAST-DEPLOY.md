@@ -18,7 +18,7 @@ cd /path/to/yorki            # the folder with docker-compose.yml
 git pull origin main         # picks up compose / nginx / script changes
 docker compose pull          # downloads the image GitHub built (about 30 seconds)
 docker compose up -d         # restarts with it
-curl -s http://127.0.0.1:3000/api/health
+curl -s http://127.0.0.1:3000/task/api/health
 ```
 
 Wait for the green "Build image" check on the commit in GitHub before pulling; until it finishes,
