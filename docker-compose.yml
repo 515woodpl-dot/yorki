@@ -39,7 +39,7 @@ services:
     stop_grace_period: 15s
 
     healthcheck:
-      test:         ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/task/login"]
+      test:         ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
       interval:     30s
       timeout:      10s
       start_period: 45s
