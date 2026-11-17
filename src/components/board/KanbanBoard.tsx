@@ -29,12 +29,15 @@ import { Avatar } from '@/components/layout/AppNav'
 import BoardColumn from './BoardColumn'
 import TaskCard from './TaskCard'
 import TaskDetailPanel from '../tasks/TaskDetailPanel'
+import QuickAdd, { type QuickAddPerson } from './QuickAdd'
 import { mentionsToPlainText } from '../tasks/MentionTextarea'
 
 interface Props {
   initialColumns: ColumnWithTasks[]
   currentUser:    SessionUser
   initialSeq?:    number
+  /** People who can be assigned (same list as the New request form). */
+  people?:        QuickAddPerson[]
 }
 
 
@@ -119,7 +122,7 @@ function getTaskSearchScore(task: TaskWithRelations, normalizedQuery: string, to
   return score
 }
 
-export default function KanbanBoard({ initialColumns, currentUser, initialSeq = 0 }: Props) {
+export default function KanbanBoard({ initialColumns, currentUser, initialSeq = 0, people = [] }: Props) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [columns,      setColumns]      = useState<ColumnWithTasks[]>(initialColumns)
@@ -637,6 +640,7 @@ export default function KanbanBoard({ initialColumns, currentUser, initialSeq = 
           { label: 'Completed this week', value: stats.completed, icon: CheckCircle2, color: 'text-emerald-700 dark:text-emerald-400', selected: statusFilter === 'completed', action: () => { setStatusFilter('completed'); setDueFilter('all') } },
         ].map(({ label, value, icon: Icon, color, selected, action }, index) => <button key={label} type="button" onClick={action} aria-pressed={selected} aria-label={`${label}: ${value}`} className={cn('group flex min-h-[100px] items-start justify-between rounded-2xl border bg-gradient-to-br p-4 text-left shadow-[0_5px_16px_-8px_rgba(35,67,115,0.25)] transition-all hover:-translate-y-0.5 hover:shadow-[0_10px_22px_-9px_rgba(35,67,115,0.32)] dark:border-border dark:from-slate-800 dark:to-slate-900 sm:min-h-[116px] sm:p-5', index === 0 ? 'border-indigo-200 from-white via-indigo-50 to-indigo-100' : index === 1 ? 'border-blue-200 from-white via-blue-50 to-sky-100' : index === 2 ? 'border-amber-200 from-white via-amber-50 to-amber-100' : 'border-emerald-200 from-white via-emerald-50 to-teal-100', selected && 'ring-2 ring-primary/50')}><span><span className="block text-xs font-medium text-muted-foreground">{label}</span><span className="mt-2 block text-3xl font-semibold tracking-tight tabular-nums">{value}</span></span><span className={cn('rounded-xl bg-white/80 p-2.5 shadow-sm dark:bg-white/10', color)}><Icon size={19} strokeWidth={1.8} /></span></button>)}
       </div>
+      <QuickAdd people={people} currentUserId={currentUser.id} onCreated={() => { void refreshBoard() }} />
       <div className="mb-5 flex flex-wrap items-center gap-2">
         <div className="relative min-w-[180px] flex-1 sm:max-w-md"><Search size={17} className="absolute left-3 top-3 text-muted-foreground" /><input aria-label="Search tasks" type="search" placeholder="Search tasks, people, or notes" value={searchQuery} onChange={event => setSearchQuery(event.target.value)} className="h-11 w-full rounded-xl border border-border bg-card pl-10 pr-9 text-sm placeholder:text-muted-foreground focus:border-primary" />{searchQuery && <button aria-label="Clear search" onClick={() => setSearchQuery('')} className="absolute right-1 top-1 flex h-9 w-8 items-center justify-center text-muted-foreground"><X size={15} /></button>}</div>
         <div aria-label="View" className="flex h-11 rounded-xl border border-border bg-card p-1 sm:order-last sm:ml-auto">{[{ key: 'board', label: 'Board', icon: LayoutDashboard }, { key: 'list', label: 'List', icon: List }, { key: 'calendar', label: 'Calendar', icon: CalendarDays }].map(({ key, label, icon: Icon }) => <button key={key} aria-label={`${label} view`} aria-pressed={view === key} onClick={() => changeView(key)} className={cn('flex items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium', view === key ? 'bg-blue-100/70 text-primary dark:bg-primary/15' : 'text-muted-foreground hover:bg-accent/40')}><Icon size={15} /><span className="hidden xl:inline">{label}</span></button>)}</div>

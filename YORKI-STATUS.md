@@ -71,6 +71,12 @@ each other:
 - Email for @mentions (Admin → Email → "@mentions", on by default) when
   Resend or SMTP is configured. Other notifications are in-app only.
 
+### Quick add (chat box)
+- Type a sentence on the board (e.g. "I want @Mia to call the supplier by Friday, urgent")
+  and get editable cards from it — people, dates, times, priority and labels are picked
+  out by plain rules (no AI). Live preview, then Enter to create. See `docs/QUICK-ADD.md`.
+- English only for now.
+
 ### File Attachments
 - Upload images and files via Submit form
 - Files saved to `public/uploads/<task_id>/`

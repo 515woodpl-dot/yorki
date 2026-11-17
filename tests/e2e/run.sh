@@ -39,4 +39,5 @@ start() {
 PLAYWRIGHT_PATH="$(npm root -g)"
 start; echo "== collaboration";            NODE_PATH="$PLAYWRIGHT_PATH" node "$ROOT/tests/e2e/collaboration.js"
 start; echo "== mentions & notifications"; SP="$TMP" NODE_PATH="$PLAYWRIGHT_PATH" node "$ROOT/tests/e2e/notifications.js"
+start; echo "== quick add (chat box)";      SP="$TMP" NODE_PATH="$PLAYWRIGHT_PATH" node "$ROOT/tests/e2e/quick-add.js"
 echo "== healthcheck"; BASE_URL="http://127.0.0.1:${PORT}" "$ROOT/scripts/healthcheck.sh"
