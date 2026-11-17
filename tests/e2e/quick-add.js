@@ -108,19 +108,32 @@ const badge = async (page) => (await page.locator('header button[aria-label^="No
   check('typo: priority understood', (await qa(ana).getByLabel('Priority', { exact: true }).inputValue()) === 'urgent')
   check('typo: the guess is shown', (await qa(ana).getByText(/“tomorow” → tomorrow/).count()) > 0)
 
-  // 8 · Learning a nickname: ask → pick → remembered next time → can be forgotten.
+  // 8 · Team-wide learning: Ana teaches "Jimmy" → Mia's Quick add knows it too → admin can remove it for everyone.
   await box(ana).fill('Jimmy should sweep the shop')
   check('learn: unknown name is asked about', await until(async () => (await qa(ana).getByText(/Who is “Jimmy”/).count()) > 0))
   await qa(ana).getByLabel('Assign someone').selectOption({ label: 'Mia Porter' })
   await qa(ana).getByRole('button', { name: 'Create card' }).click()
-  check('learn: tells you what it learned', await until(async () => (await toasts(ana)).some(t => /Learned: “jimmy” means Mia Porter/.test(t))))
+  check('learn: tells you the team learned it', await until(async () => (await toasts(ana)).some(t => /Learned for the whole team: “jimmy” means Mia Porter/.test(t))))
   await box(ana).fill('Jimmy should mop the floor')
   check('learn: next time Jimmy = Mia', await until(async () => (await qa(ana).getByText('Mia Porter').count()) > 0 && (await qa(ana).getByText(/Who is/).count()) === 0))
   check('learn: shown as remembered', (await qa(ana).getByText(/remembered: Jimmy = Mia Porter/).count()) > 0)
+
+  await mia.reload(); await qa(mia).waitFor()
+  await box(mia).fill('Jimmy should restock the sealer')
+  check('team: another person (staff) already knows Jimmy', await until(async () => (await qa(mia).getByText(/remembered: Jimmy = Mia Porter/).count()) > 0))
+  await qa(mia).getByText(/What Quick add has learned/).click()
+  check('team: shows who taught it', (await qa(mia).getByText(/taught by Ana Reyes/).count()) > 0)
+  check('team: staff cannot remove it for everyone', (await qa(mia).getByRole('button', { name: /for everyone/ }).count()) === 0)
+  await box(mia).fill('')
+
   await qa(ana).getByText(/What Quick add has learned \(1\)/).click()
   check('learn: listed under "What Quick add has learned"', (await qa(ana).getByText(/“jimmy” →/).count()) > 0)
-  await qa(ana).getByRole('button', { name: 'Forget jimmy' }).click()
-  check('learn: can be forgotten', await until(async () => (await qa(ana).getByText(/Who is “Jimmy”/).count()) > 0))
+  await qa(ana).getByRole('button', { name: 'Remove jimmy for everyone' }).click()
+  check('admin: can remove it for everyone', await until(async () => (await qa(ana).getByText(/Who is “Jimmy”/).count()) > 0))
+  await mia.reload(); await qa(mia).waitFor()
+  await box(mia).fill('Jimmy should restock the sealer')
+  check('team: removal applies to everyone', await until(async () => (await qa(mia).getByText(/Who is “Jimmy”/).count()) > 0))
+  await box(mia).fill('')
   await box(ana).fill('')
 
   // 9 · Suggestions from past cards: after a few "leak" cards for Mia, it suggests Mia.

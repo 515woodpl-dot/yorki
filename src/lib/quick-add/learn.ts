@@ -3,7 +3,7 @@
  *
  * Two kinds of learning:
  *
- * 1. From your corrections (remembered per person, on the server):
+ * 1. From corrections (nicknames are shared by the whole team; date habits are personal):
  *    - "Jimmy should call the supplier" → Quick add doesn't know Jimmy → you pick
  *      James Lee in the preview → next time "Jimmy" means James Lee.
  *    - "@Ana" matched two people and you picked one → "Ana" now means that one.
@@ -17,7 +17,7 @@
  *    one-click suggestion, never applied silently.
  */
 
-import { STOP_WORDS } from './vocabulary'
+import { CONCEPT_OF, STOP_WORDS } from './vocabulary'
 
 export type LearnPriority = 'low' | 'normal' | 'high' | 'urgent'
 
@@ -30,9 +30,24 @@ export type QuickAddLesson =
   | { kind: 'pref'; key: 'nextWeekday'; value: 'following' | 'upcoming' }
   | { kind: 'pref'; key: 'numericOrder'; value: 'mdy' | 'dmy' }
 
+/** A nickname the team taught Quick add ("jimmy" → James). Shared by everyone. */
+export interface TeamAlias {
+  token: string
+  personId: string
+  /** How many people confirmed this meaning. */
+  votes?: number
+  /** Names of (up to 3) people who taught it. */
+  taughtBy?: string[]
+  /** The current person voted for this meaning. */
+  mine?: boolean
+  /** Someone else on the team thinks it means a different person. */
+  contested?: boolean
+}
+
 export interface QuickAddMemory {
-  /** Learned nicknames / disambiguations: token (folded) → person id. */
-  aliases: Array<{ token: string; personId: string }>
+  /** Team-wide nicknames / disambiguations: token (folded) → person id. */
+  aliases: TeamAlias[]
+  /** Personal: how *this* person writes dates. */
   prefs: { nextWeekday?: 'following' | 'upcoming'; numericOrder?: 'mdy' | 'dmy' }
 }
 
@@ -105,14 +120,23 @@ export interface HistoryModel { cards: number; words: Record<string, WordStats> 
 
 export interface HistoryCard { title: string; assigneeIds: string[]; priority: string; labels: string[] }
 
-/** Meaningful words of a title, folded and lightly stemmed ("slabs" → "slab", "facturas" → "factura"). */
+/** Concept tokens start with "~" so they never collide with plain words. */
+export const CONCEPT_PREFIX = '~'
+
+/**
+ * Meaningful parts of a title: words are folded and lightly stemmed ("slabs" → "slab",
+ * "facturas" → "factura"), and words with a known meaning become that concept
+ * ("gotera", "fuga", "leaks" → "~leak"), so evidence is shared across synonyms and languages.
+ */
 export function modelTokens(text: string): string[] {
   const words = fold(text).split(/[^a-z0-9]+/).filter(Boolean)
   const out: string[] = []
-  for (let w of words) {
-    if (w.length < 3 || /^\d+$/.test(w) || STOP_WORDS.has(w)) continue
-    if (w.length > 4 && w.endsWith('s') && !w.endsWith('ss')) w = w.slice(0, -1)
-    if (!out.includes(w)) out.push(w)
+  for (const raw of words) {
+    if (raw.length < 3 || /^\d+$/.test(raw) || STOP_WORDS.has(raw)) continue
+    const stem = raw.length > 4 && raw.endsWith('s') && !raw.endsWith('ss') ? raw.slice(0, -1) : raw
+    const concept = CONCEPT_OF.get(raw) ?? CONCEPT_OF.get(stem) ?? (raw.endsWith('es') ? CONCEPT_OF.get(raw.slice(0, -2)) : undefined)
+    const token = concept ? `${CONCEPT_PREFIX}${concept}` : stem
+    if (!out.includes(token)) out.push(token)
   }
   return out
 }

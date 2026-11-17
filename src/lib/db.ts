@@ -247,6 +247,24 @@ function migrate(db: Database.Database) {
       updated_at TEXT NOT NULL,
       PRIMARY KEY (user_id, kind, key)
     );
+
+    -- Quick add nicknames are shared by the whole team. Each person has one vote
+    -- per nickname ("jimmy" → James); the person with the most votes wins.
+    CREATE TABLE IF NOT EXISTS quick_add_alias_votes (
+      key        TEXT NOT NULL,
+      person_id  TEXT NOT NULL,
+      user_id    TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (key, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_quick_add_alias_votes_key ON quick_add_alias_votes(key);
+  `)
+
+  // One-time move: nicknames learned per person (before team-wide memory) become their votes.
+  db.exec(`
+    INSERT OR IGNORE INTO quick_add_alias_votes (key, person_id, user_id, updated_at)
+      SELECT key, value, user_id, updated_at FROM quick_add_memory WHERE kind = 'alias';
+    DELETE FROM quick_add_memory WHERE kind = 'alias';
   `)
 
   // Seed if empty

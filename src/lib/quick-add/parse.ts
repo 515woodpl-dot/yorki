@@ -32,11 +32,11 @@
 import {
   EN_VERBS, ES_CLITICS, ES_FORM_TO_INFINITIVE, ES_FORMS_NOT_FOR_SPLITTING, ES_OBJECT_STARTERS, FOLLOW_UP_STARTERS,
   INTRO_WORDS, LEAD_FILLERS, MONTHS, NOT_NAMES, NUMBER_WORDS, PARTS_OF_DAY, PRIORITY_PHRASES, STOP_WORDS,
-  TRAILING_WORDS, WEAK_FOLLOW_UP_STARTERS, WEEKDAYS,
+  TRAILING_WORDS, WEAK_FOLLOW_UP_STARTERS, WEEKDAYS, conceptLabel,
 } from './vocabulary'
 import { closestWord, correctTypos } from './fuzzy'
 import {
-  suggestFromHistory, type DateAlternative, type HistoryModel, type QuickAddMemory, type RefNote,
+  CONCEPT_PREFIX, suggestFromHistory, type DateAlternative, type HistoryModel, type QuickAddMemory, type RefNote,
 } from './learn'
 
 export type { DateAlternative, HistoryModel, QuickAddMemory, RefNote }
@@ -995,7 +995,8 @@ export function parseQuickAdd(input: string, options: QuickAddOptions): ParsedCa
         assignable,
         ignoreWords: nameWords,
       }).map((s) => {
-        const share = `${s.support} of ${s.total} “${s.word}” cards`
+        const word = s.word.startsWith(CONCEPT_PREFIX) ? conceptLabel(s.word.slice(CONCEPT_PREFIX.length)) : s.word
+        const share = `${s.support} of ${s.total} “${word}” cards`
         if (s.kind === 'assignee') return { kind: 'assignee', value: s.value, reason: `${people.find((p) => p.id === s.value)?.name ?? 'Someone'} did ${share}` }
         if (s.kind === 'priority') return { kind: 'priority', value: s.value, reason: `${share} were ${s.value}` }
         return { kind: 'label', value: s.value, reason: `${share} had #${s.value}` }

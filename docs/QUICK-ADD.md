@@ -112,27 +112,63 @@ It only corrects towards a short list of date/urgency words, needs the same firs
 letter, and leaves real words alone (`fridge`, `match`, `trade`, `Friday's report`,
 e-mail addresses, @names of people who exist).
 
-## It learns
+## It learns — as a team
 
-**From your corrections** (remembered for you, on the server):
+**Nicknames are shared by everyone.** When anyone fixes a name in the preview,
+every teammate's Quick add understands it from then on:
 
-| You type | It doesn't know… | You fix it in the preview | Next time |
+| Someone types | It doesn't know… | They fix it | From now on, for everyone |
 |---|---|---|---|
 | `Jimmy should sweep the shop` | "Who is “Jimmy”?" | pick **James Lee** | `Jimmy` = James Lee |
 | `@Ana call the plumber` | two people named Ana | pick **Ana Lopez** | `Ana` = Ana Lopez |
 | `@Mai order paint` | guessed **Mia** | keep it | no longer a guess |
-| `pay the bill next Friday` | chose Nov 27 | change to Nov 20 | "next Friday" = the coming one |
-| `pay the bill 5/12` | chose May 12 | change to Dec 5 | day/month order |
 
-See and undo everything under **What Quick add has learned** in the panel.
+How it stays trustworthy:
+- **One vote per person per nickname.** If people disagree, the meaning with the
+  most votes wins (ties: the most recent). The panel shows *who taught it* and
+  *"others disagree"* when there's a conflict.
+- **Real names can't be redefined.** Nobody can teach that "Mia" means someone
+  else; a shared first name (two Anas) can only be pointed at one of them.
+- **Withdraw / remove.** Anyone can withdraw their own vote; admins can
+  *Remove for everyone*. Votes from people who left don't count.
 
-**From past cards** (computed from cards you can see; nothing extra is stored):
-if most cards about a word went to the same person, priority or label, it
-offers that as a one-click suggestion — e.g. *“+ Mia Porter · Mia did 4 of 5
-‘leak’ cards”*. Suggestions are never applied on their own. They need at least
-3 similar cards (2 for labels), and staff only learn from their own cards.
+**Date habits stay personal** (`next Friday` = this coming one; `5/12` =
+day/month): they describe how *you* write, so one person's habit doesn't
+change everyone else's dates.
 
----
+**Suggestions from past cards**: if most cards about something went to the same
+person, priority or label, Quick add offers it as a one-click suggestion —
+*“+ Mia Porter · Mia did 4 of 5 ‘leak / gotera’ cards”*. Never applied on its own.
+Admins learn from all cards; staff only from cards they can see.
+
+## Meaning, not just words
+
+Suggestions match **concepts**, not spellings: `leak`, `drip`, `gotera`,
+`fuga` and `filtración` are one idea, so English history helps a Spanish card
+and vice versa. ~45 concepts for this business (countertop / encimera, sink /
+fregadero, quote / presupuesto, template / plantilla, seal / sellar, delivery /
+entrega …) live in `CONCEPTS` in `vocabulary.ts` — add a word to a group and it
+instantly shares that group's history.
+
+### From rules to meaning, without AI — the roadmap
+
+"Meaning" here means: knowing what a sentence is *about* and *how it relates* to
+what the team already has — using transparent, local techniques (dictionaries,
+grammar and counting over your own data), no language model, no external service.
+
+| Step | What it understands | Technique | Status |
+|---|---|---|---|
+| 1 | who / when / how urgent | patterns + calendar | ✅ done |
+| 2 | typos and nicknames | edit distance + team memory | ✅ done |
+| 3 | synonyms across languages | concept dictionary (`CONCEPTS`) | ✅ done (suggestions) |
+| 4 | **"there's already a card for this"** | concept overlap + TF-IDF similarity against open cards → "add a comment instead?" | next |
+| 5 | customers, addresses, amounts, materials | gazetteers built from existing cards/contacts (`the Johnson job` → that customer), patterns for `$1,200`, phone numbers | next |
+| 6 | sentence structure | a small grammar: subject → action → object → conditions ("if it rains", "after you measure"), negation ("don't call yet", "no llamar todavía") | later |
+| 7 | repeating work | recurrence (`every Monday`, `cada lunes`, `monthly`) → repeating cards | later |
+| 8 | related words it was never told | co-occurrence statistics over the team's cards (words that keep appearing together, e.g. *grout* ↔ *tile*) → proposed concepts for an admin to approve | later |
+
+Everything stays explainable ("because 4 of 5 ‘leak’ cards…") and every guess
+is shown in the preview before anything is created.
 
 ## Adding words
 

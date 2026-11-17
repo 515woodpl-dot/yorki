@@ -23,6 +23,8 @@ export interface QuickAddPerson {
 interface Props {
   people: QuickAddPerson[]
   currentUserId: string
+  /** Admins may remove a team nickname for everyone. */
+  isAdmin?: boolean
   /** Called after cards were created so the board can refresh immediately. */
   onCreated?: () => void
 }
@@ -75,7 +77,7 @@ function describePref(key: string, value: string) {
 const fieldClass = 'h-9 rounded-lg border border-border bg-card px-2 text-xs text-foreground focus:border-primary'
 const chipButton = 'inline-flex h-8 items-center gap-1 rounded-lg border border-dashed border-primary/40 bg-primary/5 px-2.5 text-xs font-medium text-primary hover:bg-primary/10'
 
-export default function QuickAdd({ people, currentUserId, onCreated }: Props) {
+export default function QuickAdd({ people, currentUserId, isAdmin = false, onCreated }: Props) {
   const [text, setText] = useState('')
   const [splitLists, setSplitLists] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -187,8 +189,10 @@ export default function QuickAdd({ people, currentUserId, onCreated }: Props) {
       const result = await rememberQuickAdd(lessons).catch(() => null)
       if (result?.success && result.data.learned > 0) {
         const first = lessons[0]
-        toast(first.kind === 'alias' ? `Learned: “${first.key}” means ${nameOf(first.value)}` : `Learned: ${describePref(first.key, first.value)}`, {
-          description: 'Quick add will use this next time. You can undo it under “What Quick add has learned”.',
+        toast(first.kind === 'alias' ? `Learned for the whole team: “${first.key}” means ${nameOf(first.value)}` : `Learned: ${describePref(first.key, first.value)}`, {
+          description: first.kind === 'alias'
+            ? 'Everyone’s Quick add now understands it. You can withdraw it under “What Quick add has learned”.'
+            : 'Quick add will read your dates this way from now on. You can undo it under “What Quick add has learned”.',
           icon: <Brain size={16} />,
         })
       }
@@ -197,8 +201,8 @@ export default function QuickAdd({ people, currentUserId, onCreated }: Props) {
     if (created > 0 || lessons.length > 0) loadKnowledge()
   }
 
-  async function forget(kind: 'alias' | 'pref', key: string) {
-    const result = await forgetQuickAdd(kind, key)
+  async function forget(kind: 'alias' | 'pref', key: string, scope: 'mine' | 'team' = 'mine') {
+    const result = await forgetQuickAdd(kind, key, scope)
     if (result.success) loadKnowledge()
     else toast.error(result.error)
   }
@@ -222,7 +226,7 @@ export default function QuickAdd({ people, currentUserId, onCreated }: Props) {
         </span>
         <h2 className="text-sm font-semibold text-foreground">Quick add</h2>
         <p className="text-xs text-muted-foreground">
-          Type it the way you would say it — in English or Spanish. Names, dates and urgency are picked out, and it learns from your corrections.
+          Type it the way you would say it — in English or Spanish. Names, dates and urgency are picked out, and it learns from the team’s corrections.
         </p>
       </div>
 
@@ -459,24 +463,52 @@ export default function QuickAdd({ people, currentUserId, onCreated }: Props) {
           <div className="mt-2 rounded-xl bg-background p-3 text-[11px]">
             {learnedCount === 0 ? (
               <p className="text-muted-foreground">
-                Nothing yet. When you fix a name or a date in the preview (e.g. who “Jimmy” is), Quick add remembers it for you.
-                Suggestions also come from cards you have created before.
+                Nothing yet. When someone fixes a name in the preview (e.g. who “Jimmy” is), the whole team’s Quick add learns it.
+                Suggestions also come from cards created before.
               </p>
             ) : (
-              <ul className="space-y-1">
-                {memory?.aliases.map((alias) => (
-                  <li key={`alias:${alias.token}`} className="flex items-center justify-between gap-2">
-                    <span>“{alias.token}” → <b className="font-medium">{nameOf(alias.personId)}</b></span>
-                    <button type="button" onClick={() => forget('alias', alias.token)} aria-label={`Forget ${alias.token}`} className="rounded-md px-2 py-1 text-muted-foreground hover:bg-accent hover:text-foreground">Forget</button>
-                  </li>
-                ))}
-                {Object.entries(memory?.prefs ?? {}).map(([key, value]) => (
-                  <li key={`pref:${key}`} className="flex items-center justify-between gap-2">
-                    <span>{describePref(key, String(value))}</span>
-                    <button type="button" onClick={() => forget('pref', key)} aria-label={`Forget ${key}`} className="rounded-md px-2 py-1 text-muted-foreground hover:bg-accent hover:text-foreground">Forget</button>
-                  </li>
-                ))}
-              </ul>
+              <div className="space-y-3">
+                {(memory?.aliases.length ?? 0) > 0 && (
+                  <div>
+                    <p className="mb-1 font-semibold text-foreground">Nicknames — shared by the team</p>
+                    <ul className="space-y-1">
+                      {memory?.aliases.map((alias) => (
+                        <li key={`alias:${alias.token}`} className="flex flex-wrap items-center justify-between gap-x-2">
+                          <span>
+                            “{alias.token}” → <b className="font-medium">{nameOf(alias.personId)}</b>
+                            <span className="text-muted-foreground">
+                              {alias.taughtBy?.length ? ` · taught by ${alias.taughtBy.join(', ')}` : ''}
+                              {alias.votes && alias.votes > (alias.taughtBy?.length ?? 0) ? ` +${alias.votes - (alias.taughtBy?.length ?? 0)}` : ''}
+                              {alias.contested ? ' · others disagree' : ''}
+                            </span>
+                          </span>
+                          <span className="flex items-center">
+                            {alias.mine && (
+                              <button type="button" onClick={() => forget('alias', alias.token, 'mine')} aria-label={`Withdraw my vote for ${alias.token}`} className="rounded-md px-2 py-1 text-muted-foreground hover:bg-accent hover:text-foreground">Withdraw mine</button>
+                            )}
+                            {isAdmin && (
+                              <button type="button" onClick={() => forget('alias', alias.token, 'team')} aria-label={`Remove ${alias.token} for everyone`} className="rounded-md px-2 py-1 text-destructive hover:bg-destructive/10">Remove for everyone</button>
+                            )}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {Object.keys(memory?.prefs ?? {}).length > 0 && (
+                  <div>
+                    <p className="mb-1 font-semibold text-foreground">Your date habits — just for you</p>
+                    <ul className="space-y-1">
+                      {Object.entries(memory?.prefs ?? {}).map(([key, value]) => (
+                        <li key={`pref:${key}`} className="flex items-center justify-between gap-2">
+                          <span>{describePref(key, String(value))}</span>
+                          <button type="button" onClick={() => forget('pref', key)} aria-label={`Forget ${key}`} className="rounded-md px-2 py-1 text-muted-foreground hover:bg-accent hover:text-foreground">Forget</button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </details>

@@ -325,7 +325,7 @@ test('suggestions from past cards (never applied on their own)', () => {
   assert.equal(card.priority, 'normal') // not applied
   const byKind = Object.fromEntries(card.suggestions.map((s) => [s.kind, s]))
   assert.equal(byKind.assignee.value, 'mia')
-  assert.equal(byKind.assignee.reason, 'Mia Porter did 4 of 5 “leak” cards')
+  assert.equal(byKind.assignee.reason, 'Mia Porter did 4 of 5 “leak / gotera” cards')
   assert.equal(byKind.priority.value, 'urgent')
   assert.equal(byKind.label.value, 'plumbing')
 })
@@ -338,9 +338,24 @@ test('no suggestion when you already said it, or the evidence is thin', () => {
   assert.deepEqual(one('fix the leak', { history: plain(learn.buildHistoryModel(HISTORY.slice(0, 2))) }).suggestions, [])
 })
 
-test('history model ignores filler words and merges plurals', () => {
-  assert.deepEqual(plain(learn.modelTokens('Fix the leaks in the Kitchen sinks')), ['fix', 'leak', 'kitchen', 'sink'])
-  assert.deepEqual(plain(learn.modelTokens('Pagar las facturas de la cocina')), ['pagar', 'factura', 'cocina'])
+test('history model ignores filler words, merges plurals, and maps synonyms to one meaning', () => {
+  assert.deepEqual(plain(learn.modelTokens('Fix the leaks in the Kitchen sinks')), ['~repair', '~leak', '~kitchen', '~sink'])
+  assert.deepEqual(plain(learn.modelTokens('Pagar las facturas de la cocina')), ['~payment', '~invoice', '~kitchen'])
+  assert.deepEqual(plain(learn.modelTokens('Arreglar la gotera del baño')), ['~repair', '~leak', '~bathroom'])
+  assert.deepEqual(plain(learn.modelTokens('Order 3 boxes of grout')), ['~order', 'boxe', 'grout']) // unknown words stay words
+})
+
+test('meaning across words and languages: English "leak" cards inform a Spanish "gotera" card', () => {
+  const history = plain(learn.buildHistoryModel(HISTORY)) // all in English
+  for (const text of ['arreglar la gotera del baño', 'reparar la fuga de la cocina', 'fix the drip in unit 2']) {
+    const card = one(text, { history })
+    const assignee = card.suggestions.find((s) => s.kind === 'assignee')
+    assert.ok(assignee, `${text}: ${JSON.stringify(card.suggestions)}`)
+    assert.equal(assignee.value, 'mia', text)
+    assert.match(assignee.reason, /“leak \/ gotera” cards/, text)
+  }
+  // A word with no known meaning gets no borrowed evidence.
+  assert.deepEqual(one('order the grout', { history }).suggestions, [])
 })
 
 test('performance: a long Spanish + English message stays fast', () => {
@@ -350,58 +365,121 @@ test('performance: a long Spanish + English message stays fast', () => {
   assert.ok(Date.now() - started < 3000, `took ${Date.now() - started}ms`)
 })
 
-// ─── Server: what may be remembered ──────────────────────────────────────────
+// ─── Server: team-wide memory ────────────────────────────────────────────────
 
-function serverFixture(role = 'staff') {
+function serverFixture() {
   const Database = require('better-sqlite3')
   const db = new Database(':memory:')
-  db.exec(`CREATE TABLE quick_add_memory (user_id TEXT NOT NULL, kind TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL,
-    hits INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL, PRIMARY KEY (user_id, kind, key))`)
+  db.exec(`
+    CREATE TABLE quick_add_memory (user_id TEXT NOT NULL, kind TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL,
+      hits INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL, PRIMARY KEY (user_id, kind, key));
+    CREATE TABLE quick_add_alias_votes (key TEXT NOT NULL, person_id TEXT NOT NULL, user_id TEXT NOT NULL,
+      updated_at TEXT NOT NULL, PRIMARY KEY (key, user_id));`)
   const users = [
-    { id: 'me', role, is_active: true }, { id: 'mia', role: 'staff', is_active: true },
-    { id: 'gone', role: 'staff', is_active: false }, { id: 'boss', role: 'super_admin', is_active: true },
+    { id: 'ana', full_name: 'Ana Reyes', display_name: 'Ana', email: 'ana@x.com', role: 'admin', is_active: true },
+    { id: 'ana2', full_name: 'Ana Lopez', display_name: 'Ana', email: 'alopez@x.com', role: 'staff', is_active: true },
+    { id: 'mia', full_name: 'Mia Porter', display_name: 'Mia', email: 'mia@x.com', role: 'staff', is_active: true },
+    { id: 'jim', full_name: 'James Lee', display_name: 'James', email: 'jlee@x.com', role: 'staff', is_active: true },
+    { id: 'gone', full_name: 'Old Timer', display_name: 'Old', email: 'old@x.com', role: 'staff', is_active: false },
+    { id: 'boss', full_name: 'The Owner', display_name: 'Owner', email: 'owner@x.com', role: 'super_admin', is_active: true },
   ]
+  const session = { id: 'ana', role: 'admin' }
   const actions = load('src/lib/actions/quick-add.ts', {
-    '@/lib/auth': { requireRole: async () => ({ id: 'me', role }) },
+    '@/lib/auth': { requireRole: async () => ({ ...session }) },
     '@/lib/db': { getDb: () => db },
     '@/lib/local-data': {
       getAllUsers: async () => users,
       getActiveTasks: async () => [
-        { title: 'Fix leak', submitted_by: 'me', assigned_to: 'mia', custom_fields: {}, priority: 'urgent', labels: [], created_at: '2026-01-01' },
-        { title: 'Secret leak', submitted_by: 'other', assigned_to: 'other', custom_fields: {}, priority: 'urgent', labels: [], created_at: '2026-01-02' },
+        { title: 'Fix leak', submitted_by: 'mia', assigned_to: 'mia', custom_fields: {}, priority: 'urgent', labels: [], created_at: '2026-01-01' },
+        { title: 'Secret leak', submitted_by: 'ana', assigned_to: 'ana', custom_fields: {}, priority: 'urgent', labels: [], created_at: '2026-01-02' },
       ],
     },
   })
-  return { db, actions }
+  /** Act as someone else. */
+  const as = async (id, role, fn) => {
+    const before = { ...session }
+    Object.assign(session, { id, role })
+    try { return plain(await fn()) } finally { Object.assign(session, before) }
+  }
+  const aliases = (id = 'ana', role = 'admin') => as(id, role, async () => (await actions.getQuickAddKnowledge()).memory.aliases)
+  return { db, actions, as, aliases, users }
 }
 
-test('server: only valid lessons are stored, per person', async () => {
-  const { db, actions } = serverFixture()
-  const result = plain(await actions.rememberQuickAdd([
-    { kind: 'alias', key: '@Jimmy', value: 'mia' },          // ok
-    { kind: 'alias', key: 'ghost', value: 'gone' },          // deactivated person
-    { kind: 'alias', key: 'boss', value: 'boss' },           // not assignable
-    { kind: 'alias', key: '<b>x</b>', value: 'mia' },        // not a name
-    { kind: 'pref', key: 'nextWeekday', value: 'upcoming' }, // ok
-    { kind: 'pref', key: 'isAdmin', value: 'true' },         // unknown preference
-    { kind: 'role', key: 'admin', value: 'me' },             // unknown kind
-  ]))
-  assert.deepEqual(result, { success: true, data: { learned: 2 } })
-  assert.deepEqual(plain(db.prepare('SELECT user_id, kind, key, value FROM quick_add_memory ORDER BY kind').all()), [
-    { user_id: 'me', kind: 'alias', key: 'jimmy', value: 'mia' },
-    { user_id: 'me', kind: 'pref', key: 'nextWeekday', value: 'upcoming' },
-  ])
-  const knowledge = plain(await actions.getQuickAddKnowledge())
-  assert.deepEqual(knowledge.memory, { aliases: [{ token: 'jimmy', personId: 'mia' }], prefs: { nextWeekday: 'upcoming' } })
-  await actions.forgetQuickAdd('alias', 'jimmy')
-  assert.deepEqual(plain(await actions.getQuickAddKnowledge()).memory.aliases, [])
+test('team: a nickname taught by one person works for everyone', async () => {
+  const { actions, as, aliases } = serverFixture()
+  assert.deepEqual(await as('mia', 'staff', () => actions.rememberQuickAdd([{ kind: 'alias', key: '@Jimmy', value: 'jim' }])), { success: true, data: { learned: 1 } })
+  const forAna = await aliases('ana', 'admin')
+  assert.deepEqual(forAna, [{ token: 'jimmy', personId: 'jim', votes: 1, taughtBy: ['Mia Porter'], mine: false, contested: false }])
+  assert.equal((await aliases('mia', 'staff'))[0].mine, true)
 })
 
-test('server: staff only learn from cards they can see', async () => {
-  const staff = plain(await serverFixture('staff').actions.getQuickAddKnowledge())
-  assert.equal(staff.history.cards, 1) // not the "Secret leak" card
-  const admin = plain(await serverFixture('admin').actions.getQuickAddKnowledge())
-  assert.equal(admin.history.cards, 2)
+test('team: one vote per person; most votes wins, ties go to the most recent', async () => {
+  const { db, actions, as, aliases } = serverFixture()
+  await as('mia', 'staff', () => actions.rememberQuickAdd([{ kind: 'alias', key: 'jimmy', value: 'jim' }]))
+  db.prepare("UPDATE quick_add_alias_votes SET updated_at = '2026-01-01'").run()
+  await as('ana2', 'staff', () => actions.rememberQuickAdd([{ kind: 'alias', key: 'jimmy', value: 'mia' }]))
+  let [jimmy] = await aliases()
+  assert.equal(jimmy.personId, 'mia') // 1–1, the newer one wins
+  assert.equal(jimmy.contested, true)
+  await as('ana', 'admin', () => actions.rememberQuickAdd([{ kind: 'alias', key: 'jimmy', value: 'jim' }]))
+  ;[jimmy] = await aliases()
+  assert.equal(jimmy.personId, 'jim') // 2–1
+  assert.equal(jimmy.votes, 2)
+  // Re-teaching replaces your own vote, it doesn't add a second one.
+  await as('ana', 'admin', () => actions.rememberQuickAdd([{ kind: 'alias', key: 'jimmy', value: 'jim' }]))
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM quick_add_alias_votes WHERE key = 'jimmy'").get().n, 3) // mia, ana2, ana
+})
+
+test('team: real names cannot be redefined; shared first names can be disambiguated', async () => {
+  const { actions, as, aliases } = serverFixture()
+  const result = await as('ana2', 'staff', () => actions.rememberQuickAdd([
+    { kind: 'alias', key: 'mia', value: 'jim' },        // "Mia" is a real person
+    { kind: 'alias', key: 'mia porter', value: 'jim' }, // full name too
+    { kind: 'alias', key: 'james', value: 'mia' },      // display name
+    { kind: 'alias', key: 'jlee', value: 'mia' },       // e-mail name
+    { kind: 'alias', key: 'ana', value: 'mia' },        // "Ana" is two people, neither is Mia
+    { kind: 'alias', key: 'ana', value: 'ana2' },       // ok: picks one of the Anas
+    { kind: 'alias', key: 'ghost', value: 'gone' },     // deactivated person
+    { kind: 'alias', key: 'owner', value: 'boss' },     // not assignable
+    { kind: 'alias', key: '<b>x</b>', value: 'mia' },   // not a name
+    { kind: 'role', key: 'admin', value: 'ana2' },      // unknown kind
+  ]))
+  assert.deepEqual(result, { success: true, data: { learned: 1 } })
+  assert.deepEqual((await aliases()).map((a) => [a.token, a.personId]), [['ana', 'ana2']])
+})
+
+test('team: withdraw your own vote; only admins remove a nickname for everyone', async () => {
+  const { actions, as, aliases } = serverFixture()
+  await as('mia', 'staff', () => actions.rememberQuickAdd([{ kind: 'alias', key: 'jimmy', value: 'jim' }]))
+  await as('ana2', 'staff', () => actions.rememberQuickAdd([{ kind: 'alias', key: 'jimmy', value: 'jim' }]))
+  const denied = await as('mia', 'staff', () => actions.forgetQuickAdd('alias', 'jimmy', 'team'))
+  assert.equal(denied.success, false)
+  assert.match(denied.error, /Only admins/)
+  await as('mia', 'staff', () => actions.forgetQuickAdd('alias', 'jimmy', 'mine'))
+  assert.equal((await aliases())[0].votes, 1) // ana2's vote remains
+  await as('ana', 'admin', () => actions.forgetQuickAdd('alias', 'jimmy', 'team'))
+  assert.deepEqual(await aliases(), [])
+})
+
+test('team: votes of people who left do not count', async () => {
+  const { db, aliases } = serverFixture()
+  db.prepare("INSERT INTO quick_add_alias_votes VALUES ('jimmy', 'jim', 'gone', '2026-01-01')").run()
+  assert.deepEqual(await aliases(), [])
+})
+
+test('personal: date habits stay per person', async () => {
+  const { actions, as } = serverFixture()
+  await as('mia', 'staff', () => actions.rememberQuickAdd([{ kind: 'pref', key: 'numericOrder', value: 'dmy' }, { kind: 'pref', key: 'isAdmin', value: 'true' }]))
+  assert.deepEqual((await as('mia', 'staff', () => actions.getQuickAddKnowledge())).memory.prefs, { numericOrder: 'dmy' })
+  assert.deepEqual((await as('ana', 'admin', () => actions.getQuickAddKnowledge())).memory.prefs, {})
+  await as('mia', 'staff', () => actions.forgetQuickAdd('pref', 'numericOrder'))
+  assert.deepEqual((await as('mia', 'staff', () => actions.getQuickAddKnowledge())).memory.prefs, {})
+})
+
+test('server: staff only learn suggestions from cards they can see', async () => {
+  const { actions, as } = serverFixture()
+  assert.equal((await as('mia', 'staff', () => actions.getQuickAddKnowledge())).history.cards, 1) // not "Secret leak"
+  assert.equal((await as('ana', 'admin', () => actions.getQuickAddKnowledge())).history.cards, 2)
 })
 
 test('server: rejects garbage input without throwing', async () => {
@@ -409,6 +487,20 @@ test('server: rejects garbage input without throwing', async () => {
   assert.equal(plain(await actions.rememberQuickAdd('nope')).success, false)
   assert.deepEqual(plain(await actions.rememberQuickAdd([null, 5, {}])), { success: true, data: { learned: 0 } })
   assert.equal(plain(await actions.forgetQuickAdd('everything', 'x')).success, false)
+})
+
+test('migration: per-person nicknames from before become team votes', () => {
+  const Database = require('better-sqlite3')
+  const fs = require('node:fs')
+  const migrate = fs.readFileSync('src/lib/db.ts', 'utf8').match(/INSERT OR IGNORE INTO quick_add_alias_votes[\s\S]*?DELETE FROM quick_add_memory WHERE kind = 'alias';/)[0]
+  const db = new Database(':memory:')
+  db.exec(`CREATE TABLE quick_add_memory (user_id TEXT, kind TEXT, key TEXT, value TEXT, hits INTEGER, updated_at TEXT, PRIMARY KEY (user_id, kind, key));
+    CREATE TABLE quick_add_alias_votes (key TEXT, person_id TEXT, user_id TEXT, updated_at TEXT, PRIMARY KEY (key, user_id));
+    INSERT INTO quick_add_memory VALUES ('mia', 'alias', 'jimmy', 'jim', 3, '2026-01-01'), ('mia', 'pref', 'numericOrder', 'dmy', 1, '2026-01-01');`)
+  db.exec(migrate)
+  db.exec(migrate) // safe to run on every start
+  assert.deepEqual(plain(db.prepare('SELECT key, person_id, user_id FROM quick_add_alias_votes').all()), [{ key: 'jimmy', person_id: 'jim', user_id: 'mia' }])
+  assert.deepEqual(plain(db.prepare('SELECT kind FROM quick_add_memory').all()), [{ kind: 'pref' }])
 })
 
 test('performance: many names in a row cannot make the rules hang (backtracking guard)', () => {

@@ -77,9 +77,11 @@ each other:
   out by plain rules (no AI). Live preview, then Enter to create. See `docs/QUICK-ADD.md`.
 - English and Spanish (and a mix of both); accents optional; Spanish titles use the infinitive.
 - Guesses misspelled dates/urgency words and @names, and shows each guess.
-- Learns per person from preview corrections (nicknames, which "Ana", what "next Friday" and
-  "5/12" mean) — stored in `quick_add_memory`, viewable/forgettable in the panel — and suggests
-  people / priority / labels from past cards (one click, never automatic).
+- Learns as a team: nicknames fixed in the preview ("Who is Jimmy?", which "Ana") are shared by
+  everyone (`quick_add_alias_votes`, one vote per person, majority wins, real names protected,
+  admins can remove). Date habits ("next Friday", "5/12") stay personal (`quick_add_memory`).
+- Suggests people / priority / labels from past cards (one click, never automatic), matching by
+  meaning via a bilingual concept dictionary (leak = gotera = fuga). Roadmap in docs/QUICK-ADD.md.
 
 ### File Attachments
 - Upload images and files via Submit form

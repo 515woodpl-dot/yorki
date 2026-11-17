@@ -337,3 +337,78 @@ export const STOP_WORDS = new Set([
   'hay', 'muy', 'mas', 'mi', 'mis', 'tu', 'tus', 'nuestro', 'nuestra', 'hoy', 'manana', 'semana', 'urgente',
   'hacer', 'tarea', 'cosa', 'cosas', 'favor',
 ])
+
+// ─── 9 · Concepts: different words, same meaning (EN + ES) ───────────────────
+// Used when learning from past cards, so "gotera", "fuga" and "leak" count as the
+// same thing — a first step from matching words to matching meaning.
+// Format: concept → [English words, Spanish words] (accent-free, lowercase).
+
+export const CONCEPTS: Record<string, [string[], string[]]> = {
+  // problems
+  leak: [['leak', 'leaking', 'drip'], ['gotera', 'fuga', 'filtracion', 'goteo']],
+  crack: [['crack', 'cracked', 'chip', 'chipped'], ['grieta', 'fisura', 'rajadura', 'despostillado']],
+  stain: [['stain', 'mark'], ['mancha']],
+  broken: [['broken', 'damaged', 'damage'], ['roto', 'rota', 'dano', 'danado', 'averiado', 'averia']],
+  // stone and shop
+  countertop: [['countertop', 'counter', 'worktop'], ['encimera', 'cubierta', 'meseta', 'mesada', 'tablero']],
+  slab: [['slab'], ['losa', 'placa', 'plancha', 'bloque']],
+  quartz: [['quartz'], ['cuarzo']],
+  granite: [['granite'], ['granito']],
+  marble: [['marble'], ['marmol']],
+  tile: [['tile', 'tiling'], ['azulejo', 'baldosa', 'loseta', 'ceramica']],
+  backsplash: [['backsplash'], ['salpicadero', 'zocalo']],
+  sink: [['sink', 'basin'], ['lavabo', 'lavamanos', 'fregadero', 'tarja', 'pileta']],
+  edge: [['edge', 'edging'], ['canto', 'borde']],
+  seam: [['seam', 'joint'], ['junta', 'union']],
+  template: [['template', 'templating'], ['plantilla', 'plantillar']],
+  measure: [['measure', 'measurement', 'measuring'], ['medir', 'medida', 'medicion']],
+  polish: [['polish', 'polishing', 'hone'], ['pulir', 'pulido', 'abrillantar']],
+  seal: [['seal', 'sealer', 'sealing', 'sealant'], ['sellar', 'sellado', 'sellador']],
+  cut: [['cut', 'cutting', 'saw'], ['cortar', 'corte', 'sierra']],
+  install: [['install', 'installation'], ['instalar', 'instalacion', 'montaje', 'montar', 'colocar', 'colocacion']],
+  repair: [['repair', 'fix', 'patch'], ['reparar', 'arreglar', 'reparacion', 'arreglo']],
+  clean: [['clean', 'cleaning', 'sweep', 'mop'], ['limpiar', 'limpieza', 'barrer', 'trapear']],
+  // rooms and places
+  kitchen: [['kitchen'], ['cocina']],
+  bathroom: [['bathroom', 'bath', 'restroom'], ['bano', 'aseo', 'sanitario']],
+  roof: [['roof', 'roofing'], ['techo', 'tejado']],
+  shop: [['shop', 'workshop', 'warehouse'], ['taller', 'bodega', 'almacen']],
+  showroom: [['showroom'], ['exhibicion']],
+  site: [['site', 'jobsite'], ['obra']],
+  // people and companies
+  customer: [['customer', 'client', 'homeowner'], ['cliente', 'clienta', 'propietario']],
+  supplier: [['supplier', 'vendor', 'distributor'], ['proveedor', 'distribuidor']],
+  contractor: [['contractor', 'builder'], ['contratista', 'constructor']],
+  // money and paperwork
+  quote: [['quote', 'estimate', 'bid'], ['presupuesto', 'cotizacion', 'cotizar', 'presupuestar', 'estimado']],
+  invoice: [['invoice', 'bill', 'billing'], ['factura', 'facturar', 'facturacion']],
+  payment: [['payment', 'pay', 'deposit'], ['pago', 'pagar', 'abono', 'deposito', 'anticipo']],
+  contract: [['contract', 'agreement'], ['contrato', 'acuerdo']],
+  permit: [['permit', 'license', 'licence'], ['permiso', 'licencia']],
+  // logistics
+  order: [['order', 'purchase'], ['pedido', 'pedir', 'orden', 'compra', 'comprar']],
+  delivery: [['delivery', 'deliver', 'shipping'], ['entrega', 'entregar', 'envio', 'despacho']],
+  pickup: [['pickup'], ['recoger', 'recogida']],
+  truck: [['truck', 'van'], ['camion', 'camioneta']],
+  stock: [['stock', 'inventory', 'restock'], ['inventario', 'existencias', 'surtir', 'reponer']],
+  // talking
+  call: [['call', 'phone'], ['llamar', 'llamada', 'telefonear']],
+  email: [['email', 'mail'], ['correo']],
+  meeting: [['meeting', 'meet', 'appointment'], ['reunion', 'cita']],
+  schedule: [['schedule', 'reschedule', 'book'], ['programar', 'agendar', 'reprogramar', 'reservar']],
+}
+
+/** Word (accent-free, lowercase) → concept. */
+export const CONCEPT_OF: Map<string, string> = (() => {
+  const map = new Map<string, string>()
+  for (const [concept, [en, es]] of Object.entries(CONCEPTS)) {
+    for (const word of [...en, ...es]) if (!map.has(word)) map.set(word, concept)
+  }
+  return map
+})()
+
+/** "leak / gotera" — how a concept is named in explanations. */
+export function conceptLabel(concept: string): string {
+  const entry = CONCEPTS[concept]
+  return entry ? `${entry[0][0]} / ${entry[1][0]}` : concept
+}
