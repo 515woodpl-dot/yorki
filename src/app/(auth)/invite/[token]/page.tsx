@@ -1,9 +1,9 @@
 import { redirect } from 'next/navigation'
 import { validateInvite } from '@/lib/actions/invite'
 import InviteForm from './InviteForm'
+import BrandLogo from '@/components/brand/BrandLogo'
 
 export const dynamic = 'force-dynamic'
-const APP_BASE_PATH = process.env.NODE_ENV === 'production' ? '/task' : ''
 
 interface Props { params: Promise<{ token: string }> }
 
@@ -15,8 +15,7 @@ export default async function InvitePage({ params }: Props) {
     return (
       <div className="min-h-dvh bg-background flex items-center justify-center px-4">
         <div className="w-full max-w-[360px] text-center">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={`${APP_BASE_PATH}/Yorki.png`} alt="Yorki" className="h-8 w-auto mx-auto mb-8 opacity-80" />
+          <BrandLogo className="h-8 mx-auto mb-8 opacity-80" />
           <div className="bg-card border border-border/80 rounded-2xl p-8 shadow-xl shadow-black/5">
             <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center mx-auto mb-4">
               <span className="text-2xl">⚠️</span>
@@ -42,8 +41,7 @@ export default async function InvitePage({ params }: Props) {
 
       <div className="w-full max-w-[380px] relative">
         <div className="text-center mb-8">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={`${APP_BASE_PATH}/Yorki.png`} alt="Yorki" className="h-8 w-auto mx-auto mb-7 opacity-95" />
+          <BrandLogo className="h-8 mx-auto mb-7 opacity-95" />
           <h1 className="text-2xl font-semibold text-foreground tracking-tight">Set your password</h1>
           <p className="text-sm text-muted-foreground mt-1.5">Welcome to Yorki, {invite.full_name ?? invite.email}</p>
         </div>

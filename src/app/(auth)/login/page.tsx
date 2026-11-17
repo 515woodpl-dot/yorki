@@ -1,6 +1,6 @@
 import LoginForm from './LoginForm'
+import BrandLogo from '@/components/brand/BrandLogo'
 
-const APP_BASE_PATH = process.env.NODE_ENV === 'production' ? '/task' : ''
 
 export default async function LoginPage({
   searchParams,
@@ -25,8 +25,7 @@ export default async function LoginPage({
 
         {/* Logo */}
         <div className="text-center mb-8">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={`${APP_BASE_PATH}/Yorki.png`} alt="Yorki" className="h-9 w-auto mx-auto mb-7 opacity-95" />
+          <BrandLogo className="h-9 mx-auto mb-7 opacity-95" />
           <h1 className="text-2xl font-semibold text-foreground tracking-tight">Welcome back</h1>
           <p className="text-sm text-muted-foreground mt-1.5">Sign in to your workspace</p>
         </div>

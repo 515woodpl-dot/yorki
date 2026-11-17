@@ -11,13 +11,13 @@
  * What it deliberately does NOT do: cache pages, API responses, uploads or anything else
  * that can contain a signed-in person's data. Only public, immutable files are cached.
  */
-const VERSION = 'yorki-pwa-v4'
+const VERSION = 'yorki-pwa-v5'
 const STATIC_CACHE = `${VERSION}-static`
 const MAX_STATIC_ENTRIES = 120
 
 const scope = new URL(self.registration.scope).pathname.replace(/\/$/, '') // "/task" in production
 const OFFLINE_URL = `${scope}/offline.html`
-const PRECACHE = [OFFLINE_URL, `${scope}/icons/icon-192.png`, `${scope}/icons/icon-512.png`, `${scope}/icons/badge-96.png`, `${scope}/Yorki.png`]
+const PRECACHE = [OFFLINE_URL, `${scope}/icons/icon-192.png`, `${scope}/icons/icon-512.png`, `${scope}/icons/badge-96.png`, `${scope}/Yorki.png`, `${scope}/Yorki-light.png`]
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(STATIC_CACHE).then((cache) => cache.addAll(PRECACHE)))
@@ -47,7 +47,8 @@ async function trim(cache) {
 const isCacheable = (pathname) =>
   pathname.startsWith(`${scope}/_next/static/`) ||
   pathname.startsWith(`${scope}/icons/`) ||
-  pathname === `${scope}/Yorki.png`
+  pathname === `${scope}/Yorki.png` ||
+  pathname === `${scope}/Yorki-light.png`
 
 self.addEventListener('fetch', (event) => {
   const request = event.request

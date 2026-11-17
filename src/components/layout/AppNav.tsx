@@ -6,6 +6,7 @@ import { useState } from 'react'
 import { LayoutDashboard, Plus, Archive, Settings, LogOut, ChevronDown, CalendarDays, CheckSquare, Users, Bell } from 'lucide-react'
 import { cn, getUserInitials, getUserDisplayName } from '@/lib/utils'
 import type { SessionUser } from '@/lib/types'
+import BrandLogo from '@/components/brand/BrandLogo'
 import NotificationBell from './NotificationBell'
 import InstallAppItem from '@/components/pwa/InstallAppItem'
 import { removeThisDevicePush } from '@/lib/push/client'
@@ -60,7 +61,7 @@ export default function AppNav({ user }: { user: SessionUser }) {
 
   return <>
     <aside className="fixed inset-y-0 left-0 z-40 hidden w-56 flex-col border-r border-blue-200/70 bg-gradient-to-b from-[#f6faff] via-[#eaf3ff] to-[#dceaff] shadow-[4px_0_24px_-14px_rgba(35,67,115,0.3)] dark:border-border dark:from-slate-900 dark:via-slate-900 dark:to-slate-800 lg:flex">
-      <Link href="/dashboard" className="px-6 pb-9 pt-8"><Brand /><span className="mt-1 block text-[9px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Golden Stone Works</span></Link>
+      <Link href="/dashboard" className="px-6 pb-9 pt-8"><Brand /></Link>
       <nav aria-label="Main navigation" className="space-y-1 px-4">
         {mainLinks.map(({ href, label, icon: Icon, key }) => <Link key={key} href={href} aria-current={active === key ? 'page' : undefined} className={navClass(active === key)}><Icon size={19} />{label}</Link>)}
         {isAdmin && <Link href="/archive" aria-current={active === '/archive' ? 'page' : undefined} className={navClass(active === '/archive')}><Archive size={19} />Archive</Link>}
@@ -71,7 +72,7 @@ export default function AppNav({ user }: { user: SessionUser }) {
       <div className="mt-auto border-t border-blue-200/80 p-4 dark:border-border"><NotificationBell />{accountMenu(true)}</div>
     </aside>
     <header className="sticky top-0 z-40 flex h-[calc(72px+env(safe-area-inset-top))] [@media(max-height:500px)]:h-[calc(52px+env(safe-area-inset-top))] items-center justify-between border-b border-border/60 bg-card/95 pb-0 pl-[max(1.25rem,env(safe-area-inset-left))] pr-[max(1.25rem,env(safe-area-inset-right))] pt-[env(safe-area-inset-top)] backdrop-blur lg:hidden">
-      <Link href="/dashboard" className="flex items-center gap-2"><Brand /><span><span className="block text-xl font-bold leading-6 tracking-tight">Yorki</span><span className="text-[8px] font-semibold uppercase tracking-widest text-muted-foreground">Golden Stone Works</span></span></Link><div className="flex items-center"><NotificationBell />{accountMenu(false)}</div>
+      <Link href="/dashboard" className="flex items-center"><Brand /></Link><div className="flex items-center"><NotificationBell />{accountMenu(false)}</div>
     </header>
     <nav aria-label="Mobile navigation" className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-border bg-card/95 pb-[env(safe-area-inset-bottom)] pl-[max(0.5rem,env(safe-area-inset-left))] pr-[max(0.5rem,env(safe-area-inset-right))] backdrop-blur lg:hidden">
       {[...mainLinks.slice(0, 2), { href: '/submit', label: 'New task', icon: Plus, key: '/submit' }, mainLinks[2]].map(({ href, label, icon: Icon, key }) => <Link key={key} href={href} aria-current={active === key ? 'page' : undefined} className={cn('my-2 [@media(max-height:500px)]:my-1 flex min-h-[50px] [@media(max-height:500px)]:min-h-11 flex-col [@media(max-height:500px)]:flex-row items-center justify-center gap-1 [@media(max-height:500px)]:gap-2 rounded-xl text-[10px] [@media(max-height:500px)]:text-xs font-medium', active === key ? 'bg-blue-100/70 text-primary dark:bg-primary/15' : 'text-muted-foreground')}><Icon size={20} />{label === 'Team board' ? 'Board' : label}</Link>)}
@@ -80,7 +81,7 @@ export default function AppNav({ user }: { user: SessionUser }) {
 }
 
 function Brand() {
-  return <img src={`${APP_BASE_PATH}/Yorki.png`} alt="Yorki" className="h-10 w-auto" />
+  return <BrandLogo className="h-10" />
 }
 
 export function Avatar({ user, size = 'md' }: {

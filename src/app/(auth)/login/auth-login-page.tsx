@@ -1,14 +1,13 @@
 import LoginForm from './LoginForm'
+import BrandLogo from '@/components/brand/BrandLogo'
 
-const APP_BASE_PATH = process.env.NODE_ENV === 'production' ? '/task' : ''
 
 export default function LoginPage() {
   return (
     <div className="min-h-dvh bg-background flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={`${APP_BASE_PATH}/Yorki.png`} alt="Yorki" className="h-10 w-auto mx-auto mb-6" />
+          <BrandLogo className="h-10 mx-auto mb-6" />
           <h1 className="text-xl font-semibold text-foreground">Sign in to Yorki</h1>
           <p className="text-sm text-muted-foreground mt-1">Enter your credentials to continue</p>
         </div>
