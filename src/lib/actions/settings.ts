@@ -337,27 +337,27 @@ export async function setUserPassword(userId: string, password: string): Promise
   }
 }
 
-export async function deleteUser(userId: string): Promise<ActionResult> {
+export async function deleteUser(userId: string): Promise<ActionResult<{ deletedTaskCount: number }>> {
   try {
     const actor = await requireRole('admin', 'super_admin')
     assertMayManageUser(actor, userId)
     if (actor.id === userId) {
       return { success: false, error: 'You cannot delete your own account.' }
     }
-    getDb().transaction(() => {
+    const deletion = getDb().transaction(() => {
       const target = getDb().prepare('SELECT role, is_active FROM users WHERE id = ?').get(userId) as { role: string; is_active: number }
       if (target.is_active === 1 && (target.role === 'admin' || target.role === 'super_admin') && getActiveAdminCount() <= 1) {
         throw new Error('You cannot delete the last active admin account.')
       }
-      dbDeleteUser(userId)
+      return dbDeleteUser(userId)
     }).immediate()
     await createActivityLog({
       actor_id: actor.id, task_id: null,
       entity_type: 'user', entity_id: userId,
-      action: 'user_updated', metadata: { deleted: true },
+      action: 'user_updated', metadata: { deleted: true, deleted_task_count: deletion.deletedTaskCount },
     })
     revalidatePath(normalizePath('/admin/users'))
-    return { success: true, data: undefined }
+    return { success: true, data: deletion }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Unknown error' }
   }

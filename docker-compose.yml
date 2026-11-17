@@ -18,10 +18,10 @@ services:
       EMAIL_FROM:     ${EMAIL_FROM:-noreply@yorki.internal}
 
     volumes:
-      # Persist SQLite DB and uploaded files outside the container
-      # Data survives container rebuilds, updates, and restarts
-      - yorki_data:/app/data
-      - yorki_uploads:/app/public/uploads
+      # Persist application data directly on the Yorki disk.
+      # Data survives container rebuilds, updates, and restarts.
+      - ./data:/app/data
+      - ./uploads:/app/public/uploads
 
     # Resource limits — adjust for your droplet size
     # $6 DO droplet (1GB): use these limits
@@ -44,9 +44,3 @@ services:
       timeout:      10s
       start_period: 45s
       retries:      3
-
-volumes:
-  yorki_data:
-    driver: local
-  yorki_uploads:
-    driver: local

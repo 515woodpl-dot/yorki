@@ -54,7 +54,7 @@ export default function AppNav({ user }: { user: SessionUser }) {
 
   return <>
     <aside className="fixed inset-y-0 left-0 z-40 hidden w-56 flex-col border-r border-blue-200/70 bg-gradient-to-b from-[#f6faff] via-[#eaf3ff] to-[#dceaff] shadow-[4px_0_24px_-14px_rgba(35,67,115,0.3)] dark:border-border dark:from-slate-900 dark:via-slate-900 dark:to-slate-800 lg:flex">
-      <Link href="/dashboard" className="flex items-center gap-2.5 px-6 pb-9 pt-8"><Brand /><span><span className="block text-2xl font-bold tracking-tight">Yorki</span><span className="block text-[9px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Golden Stone Works</span></span></Link>
+      <Link href="/dashboard" className="px-6 pb-9 pt-8"><Brand /><span className="mt-1 block text-[9px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Golden Stone Works</span></Link>
       <nav aria-label="Main navigation" className="space-y-1 px-4">
         {mainLinks.map(({ href, label, icon: Icon, key }) => <Link key={key} href={href} aria-current={active === key ? 'page' : undefined} className={navClass(active === key)}><Icon size={19} />{label}</Link>)}
         {isAdmin && <Link href="/archive" aria-current={active === '/archive' ? 'page' : undefined} className={navClass(active === '/archive')}><Archive size={19} />Archive</Link>}
@@ -65,7 +65,7 @@ export default function AppNav({ user }: { user: SessionUser }) {
       <div className="mt-auto border-t border-blue-200/80 p-4 dark:border-border"><NotificationBell />{accountMenu(true)}</div>
     </aside>
     <header className="sticky top-0 z-40 flex h-[72px] items-center justify-between border-b border-border/60 bg-card/95 px-5 backdrop-blur lg:hidden">
-      <Link href="/dashboard" className="flex items-center gap-2"><Brand /><span><span className="block text-xl font-bold leading-6 tracking-tight">Yorki</span><span className="text-[8px] font-semibold uppercase tracking-widest text-muted-foreground">Golden Stone Works</span></span></Link><div className="flex items-center"><NotificationBell />{accountMenu(false)}</div>
+      <Link href="/dashboard"><Brand /><span className="block text-[8px] font-semibold uppercase tracking-widest text-muted-foreground">Golden Stone Works</span></Link><div className="flex items-center"><NotificationBell />{accountMenu(false)}</div>
     </header>
     <nav aria-label="Mobile navigation" className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-border bg-card/95 px-2 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
       {[...mainLinks.slice(0, 2), { href: '/submit', label: 'New task', icon: Plus, key: '/submit' }, mainLinks[2]].map(({ href, label, icon: Icon, key }) => <Link key={key} href={href} aria-current={active === key ? 'page' : undefined} className={cn('my-2 flex min-h-[50px] flex-col items-center justify-center gap-1 rounded-xl text-[10px] font-medium', active === key ? 'bg-blue-100/70 text-primary dark:bg-primary/15' : 'text-muted-foreground')}><Icon size={20} />{label === 'Team board' ? 'Board' : label}</Link>)}
@@ -74,7 +74,7 @@ export default function AppNav({ user }: { user: SessionUser }) {
 }
 
 function Brand() {
-  return <span aria-hidden="true" className="flex h-10 w-8 shrink-0 items-center justify-center text-[36px] font-black tracking-tighter text-primary">Y<span className="mb-5 -ml-1 h-2 w-2 rounded-sm bg-[#6A97C4]" /></span>
+  return <img src={`${APP_BASE_PATH}/Yorki.png`} alt="Yorki" className="h-10 w-auto" />
 }
 
 export function Avatar({ user, size = 'md' }: {

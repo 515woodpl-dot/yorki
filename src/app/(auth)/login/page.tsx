@@ -2,7 +2,14 @@ import LoginForm from './LoginForm'
 
 const APP_BASE_PATH = process.env.NODE_ENV === 'production' ? '/task' : ''
 
-export default function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ reason?: string }>
+}) {
+  const { reason } = await searchParams
+  const timedOut = reason === 'timeout'
+
   return (
     <div className="min-h-screen bg-background flex items-center justify-center px-4 relative overflow-hidden">
 
@@ -26,6 +33,11 @@ export default function LoginPage() {
 
         {/* Card */}
         <div className="bg-card border border-border/80 rounded-2xl p-7 shadow-xl shadow-black/5 dark:shadow-black/30">
+          {timedOut && (
+            <p className="mb-4 rounded-lg bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300" role="status">
+              Your session ended after 10 minutes of inactivity. Please sign in again.
+            </p>
+          )}
           <LoginForm />
         </div>
 

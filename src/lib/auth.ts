@@ -9,7 +9,7 @@
  *   - Deactivated users blocked at login + session lookup
  *   - Brute-force: 5 attempts per email per 15 min (persistent SQLite counter)
  *   - Expired sessions pruned from DB on every login
- *   - Sessions expire after 30 days
+ *   - Sessions expire after 10 minutes of inactivity
  */
 
 import { cookies } from 'next/headers'
@@ -20,9 +20,8 @@ import { getDb } from './db'
 import { reserveLoginAttempt, clearLoginAttempts } from './login-rate-limit'
 import type { SessionUser, UserProfile, UserRole } from './types'
 
-const COOKIE_NAME  = 'yorki_session'
-const SESSION_DAYS = 30
-const SESSION_MS   = SESSION_DAYS * 24 * 60 * 60 * 1000
+const COOKIE_NAME = 'yorki_session'
+export const SESSION_IDLE_MS = 10 * 60 * 1000
 
 // ─── User mapping ─────────────────────────────────────────────────────────────
 
@@ -50,7 +49,7 @@ export async function createSession(userId: string): Promise<string> {
   const db        = getDb()
   const sessionId = randomUUID()
   const now       = new Date()
-  const expires   = new Date(now.getTime() + SESSION_MS)
+  const expires   = new Date(now.getTime() + SESSION_IDLE_MS)
 
   // Prune expired sessions for this user to keep the table clean
   db.prepare(`DELETE FROM sessions WHERE user_id = ? AND expires_at < ?`)
@@ -118,6 +117,38 @@ export async function destroySession(): Promise<void> {
       cookieStore.delete(COOKIE_NAME)
     }
   } catch {}
+}
+
+/** Extend an active session after a user interaction. */
+export async function refreshSession(): Promise<boolean> {
+  try {
+    const cookieStore = await cookies()
+    const sessionId = cookieStore.get(COOKIE_NAME)?.value
+    if (!sessionId) return false
+
+    const db = getDb()
+    const now = new Date()
+    const session = db.prepare(`
+      SELECT s.id
+      FROM sessions s
+      JOIN users u ON u.id = s.user_id
+      WHERE s.id = ? AND s.expires_at > ? AND u.is_active = 1
+    `).get(sessionId, now.toISOString()) as { id: string } | undefined
+    if (!session) return false
+
+    const expires = new Date(now.getTime() + SESSION_IDLE_MS)
+    db.prepare('UPDATE sessions SET expires_at = ? WHERE id = ?').run(expires.toISOString(), sessionId)
+    cookieStore.set(COOKIE_NAME, sessionId, {
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/',
+      expires,
+      secure: process.env.NODE_ENV === 'production',
+    })
+    return true
+  } catch {
+    return false
+  }
 }
 
 // ─── Login ────────────────────────────────────────────────────────────────────

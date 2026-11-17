@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic'
 import { redirect } from 'next/navigation'
 import { getSessionUser } from '@/lib/auth'
 import AppNav from '@/components/layout/AppNav'
+import SessionTimeout from '@/components/auth/SessionTimeout'
 
 export default async function ProtectedLayout({ children }: { children: React.ReactNode }) {
   const user = await getSessionUser()
@@ -10,6 +11,7 @@ export default async function ProtectedLayout({ children }: { children: React.Re
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
+      <SessionTimeout />
       <AppNav user={user} />
       <main className="min-w-0 flex-1 flex flex-col pb-20 lg:pb-0 lg:pl-56">
         {children}

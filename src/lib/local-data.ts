@@ -127,38 +127,39 @@ export function toggleUserActive(userId: string, isActive: boolean): void {
   getDb().prepare('UPDATE users SET is_active=?, updated_at=? WHERE id=?').run(isActive ? 1 : 0, now(), userId)
 }
 
-export function deleteUser(userId: string): void {
+export function deleteUser(userId: string): { deletedTaskCount: number } {
   const db = getDb()
-  const relatedTasks = db.prepare(`
-    SELECT COUNT(*) as n FROM tasks
-    WHERE deleted_at IS NULL AND (submitted_by=? OR assigned_to=?)
-  `).get(userId, userId) as { n: number }
-  if (relatedTasks.n > 0) {
-    throw new Error('Cannot delete a user with assigned or submitted tasks.')
-  }
+  const relatedTaskIds = new Set(
+    (db.prepare(`
+      SELECT id FROM tasks
+      WHERE deleted_at IS NULL AND (submitted_by=? OR assigned_to=?)
+    `).all(userId, userId) as Array<{ id: string }>).map(({ id }) => id)
+  )
 
-  const customAssignments = db.prepare('SELECT custom_fields FROM tasks WHERE deleted_at IS NULL').all() as Array<{ custom_fields: string }>
-  const appearsInAssignmentMetadata = customAssignments.some(({ custom_fields }) => {
+  const customAssignments = db.prepare('SELECT id, custom_fields FROM tasks WHERE deleted_at IS NULL').all() as Array<{ id: string; custom_fields: string }>
+  for (const { id, custom_fields } of customAssignments) {
     try {
       const value = JSON.parse(custom_fields || '{}') as Record<string, unknown>
-      return Array.isArray(value.assigned_user_ids) && value.assigned_user_ids.includes(userId)
+      if (Array.isArray(value.assigned_user_ids) && value.assigned_user_ids.includes(userId)) {
+        relatedTaskIds.add(id)
+      }
     } catch {
-      return false
+      // Invalid legacy JSON cannot create an assignment relationship.
     }
-  })
-  if (appearsInAssignmentMetadata) throw new Error('Cannot delete a user who is assigned to active tasks.')
-
-  const relatedComments = db.prepare(`
-    SELECT COUNT(*) as n FROM comments
-    WHERE deleted_at IS NULL AND author_id=?
-  `).get(userId) as { n: number }
-  if (relatedComments.n > 0) {
-    throw new Error('Cannot delete a user with comment history.')
   }
+
+  const deletedAt = now()
+  const softDeleteTask = db.prepare('UPDATE tasks SET deleted_at=?, updated_at=? WHERE id=? AND deleted_at IS NULL')
+  for (const taskId of relatedTaskIds) softDeleteTask.run(deletedAt, deletedAt, taskId)
+
+  // A deleted account must not leave visible comments tied to a missing author.
+  db.prepare('UPDATE comments SET deleted_at=?, updated_at=? WHERE author_id=? AND deleted_at IS NULL')
+    .run(deletedAt, deletedAt, userId)
 
   db.prepare('DELETE FROM sessions WHERE user_id=?').run(userId)
   db.prepare('DELETE FROM invites WHERE user_id=?').run(userId)
   db.prepare('DELETE FROM users WHERE id=?').run(userId)
+  return { deletedTaskCount: relatedTaskIds.size }
 }
 
 // ─── Columns ──────────────────────────────────────────────────────────────────

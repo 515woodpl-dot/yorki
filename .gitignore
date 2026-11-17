@@ -2,6 +2,8 @@
 .next
 node_modules
 data
+.build-data/
+uploads/
 *.tsbuildinfo
 totemic-inquiry-493511-b8-f8b03d4be4dc.json
 

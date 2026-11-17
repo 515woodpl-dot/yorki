@@ -82,12 +82,13 @@ export default function UsersClient({ initialUsers, isSuperAdmin }: Props) {
   }
 
   async function handleDeleteUser(userId: string, label: string) {
-    if (!window.confirm(`Delete ${label}? This only works if they have no task or comment history.`)) return
+    if (!window.confirm(`Delete ${label} and remove every task they submitted or are assigned to? Their comments will also be removed from view. This cannot be undone.`)) return
     start(async () => {
       const result = await deleteUser(userId)
       if (result.success) {
         setUsers(prev => prev.filter(u => u.id !== userId))
-        toast.success('User deleted')
+        const count = result.data?.deletedTaskCount ?? 0
+        toast.success(count === 1 ? 'User and 1 related task deleted' : `User and ${count} related tasks deleted`)
       } else {
         toast.error(result.error)
       }
