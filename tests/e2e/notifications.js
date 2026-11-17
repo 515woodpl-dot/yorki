@@ -46,6 +46,12 @@ async function comment(p, text) {
 
   check('mention: Ana gets unread badge live', await until(async () => /unread/.test(await badge(ana))), `(${await badge(ana)})`)
   check('mention: Ana sees toast', await until(async () => /mentioned you on/.test((await ana.locator('[data-sonner-toast]').allInnerTexts()).join(' '))))
+  // The toast's own "Open" button must work (a tap anywhere used to dismiss the toast before the tap landed).
+  const toastOpen = ana.locator('[data-sonner-toast] button', { hasText: 'Open' }).first()
+  check('toast: its "Open" button is there', await until(async () => (await toastOpen.count()) > 0))
+  await toastOpen.click().catch(() => {})
+  check('toast: tapping "Open" opens the card', await until(async () => /[?&]task=/.test(ana.url())))
+  await ana.goto(BASE + '/dashboard')
   // Mia is an assignee -> gets a "comment" notification (not mention)
   check('comment: assignee Mia notified of reply', await until(async () => /2 unread/.test(await badge(mia))), `(${await badge(mia)})`)
 

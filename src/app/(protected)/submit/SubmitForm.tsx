@@ -262,7 +262,7 @@ export default function SubmitForm({ staffUsers }: SubmitFormProps) {
           type="button"
           onClick={addChecklistItem}
           className={cn(
-            'flex items-center gap-1.5 h-9 px-3 rounded-lg border border-dashed border-border',
+            'flex items-center gap-1.5 h-9 coarse:h-11 px-3 rounded-lg border border-dashed border-border',
             'text-sm text-muted-foreground hover:text-foreground hover:border-primary/40 hover:bg-accent/30',
             'transition-colors'
           )}

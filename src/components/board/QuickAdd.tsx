@@ -75,8 +75,8 @@ function describePref(key: string, value: string) {
   return `${key}: ${value}`
 }
 
-const fieldClass = 'h-9 rounded-lg border border-border bg-card px-2 text-xs text-foreground focus:border-primary'
-const chipButton = 'inline-flex h-8 items-center gap-1 rounded-lg border border-dashed border-primary/40 bg-primary/5 px-2.5 text-xs font-medium text-primary hover:bg-primary/10'
+const fieldClass = 'h-10 rounded-lg border border-border bg-card px-2 text-xs text-foreground focus:border-primary'
+const chipButton = 'inline-flex min-h-10 items-center gap-1 rounded-lg border border-dashed border-primary/40 bg-primary/5 px-2.5 text-xs font-medium text-primary hover:bg-primary/10'
 
 export default function QuickAdd({ people, currentUserId, isAdmin = false, onCreated }: Props) {
   const [text, setText] = useState('')
@@ -260,7 +260,7 @@ export default function QuickAdd({ people, currentUserId, isAdmin = false, onCre
               key={example}
               type="button"
               onClick={() => setText(example)}
-              className="max-w-full truncate rounded-full border border-border bg-background px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+              className="max-w-full truncate min-h-10 rounded-full border border-border bg-background px-3.5 py-2 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
             >
               {example}
             </button>
@@ -288,13 +288,13 @@ export default function QuickAdd({ people, currentUserId, isAdmin = false, onCre
                     onChange={(event) => patch(card.index, { title: event.target.value })}
                     aria-label="Card title"
                     maxLength={500}
-                    className="h-9 min-w-0 flex-1 rounded-lg border border-transparent bg-transparent px-2 text-sm font-semibold text-foreground hover:border-border focus:border-primary focus:bg-card focus:outline-none"
+                    className="h-11 min-w-0 flex-1 rounded-lg border border-transparent bg-transparent px-2 text-sm font-semibold text-foreground hover:border-border focus:border-primary focus:bg-card focus:outline-none"
                   />
                   <button
                     type="button"
                     onClick={() => remove(card.index)}
                     aria-label={`Remove “${card.title}”`}
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground"
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground"
                   >
                     <X size={15} />
                   </button>
@@ -302,13 +302,13 @@ export default function QuickAdd({ people, currentUserId, isAdmin = false, onCre
 
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   {card.assigneeIds.map((id) => (
-                    <span key={id} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary/10 pl-2.5 pr-1 text-xs font-medium text-primary">
+                    <span key={id} className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-primary/10 pl-2.5 pr-0.5 text-xs font-medium text-primary">
                       {nameOf(id)}
                       <button
                         type="button"
                         aria-label={`Unassign ${nameOf(id)}`}
                         onClick={() => patch(card.index, { assigneeIds: card.assigneeIds.filter((x) => x !== id) })}
-                        className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-primary/15"
+                        className="flex h-10 w-10 items-center justify-center rounded-md hover:bg-primary/15"
                       >
                         <X size={12} />
                       </button>
@@ -356,13 +356,13 @@ export default function QuickAdd({ people, currentUserId, isAdmin = false, onCre
                     </select>
                   </span>
                   {card.labels.map((label) => (
-                    <span key={label} className="inline-flex h-9 items-center gap-1 rounded-lg bg-accent pl-2.5 pr-1 text-xs text-muted-foreground">
+                    <span key={label} className="inline-flex h-10 items-center gap-1 rounded-lg bg-accent pl-2.5 pr-0.5 text-xs text-muted-foreground">
                       <Tag size={11} aria-hidden="true" />{label}
                       <button
                         type="button"
                         aria-label={`Remove label ${label}`}
                         onClick={() => patch(card.index, { labels: card.labels.filter((l) => l !== label) })}
-                        className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-background"
+                        className="flex h-10 w-10 items-center justify-center rounded-md hover:bg-background"
                       >
                         <X size={11} />
                       </button>
@@ -384,7 +384,7 @@ export default function QuickAdd({ people, currentUserId, isAdmin = false, onCre
                             type="button"
                             aria-label={`Remove checklist item “${item}”`}
                             onClick={() => patch(card.index, { checklist: card.checklist.filter((_, j) => j !== i) })}
-                            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                            className="-my-1.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
                           >
                             <X size={11} />
                           </button>
@@ -445,7 +445,7 @@ export default function QuickAdd({ people, currentUserId, isAdmin = false, onCre
       )}
 
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-        <label className="flex min-h-9 cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+        <label className="flex min-h-11 cursor-pointer items-center gap-2 text-xs text-muted-foreground">
           <input
             type="checkbox"
             checked={splitLists}
@@ -456,7 +456,7 @@ export default function QuickAdd({ people, currentUserId, isAdmin = false, onCre
         </label>
         <div className="ml-auto flex items-center gap-2">
           {text !== '' && !busy && (
-            <button type="button" onClick={() => setText('')} className="min-h-9 rounded-lg px-3 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground">
+            <button type="button" onClick={() => setText('')} className="min-h-11 rounded-lg px-3 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground">
               Clear
             </button>
           )}
@@ -474,7 +474,7 @@ export default function QuickAdd({ people, currentUserId, isAdmin = false, onCre
 
       <div className="mt-2 grid gap-2 border-t border-border/60 pt-2 text-xs sm:grid-cols-2">
         <details className="group">
-          <summary className="flex min-h-9 cursor-pointer list-none items-center gap-1.5 font-medium text-muted-foreground hover:text-foreground">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center gap-1.5 font-medium text-muted-foreground hover:text-foreground">
             <BookOpen size={13} aria-hidden="true" /> What can I type?
           </summary>
           <dl className="mt-2 space-y-1.5 rounded-xl bg-background p-3 text-[11px] leading-relaxed">
@@ -488,7 +488,7 @@ export default function QuickAdd({ people, currentUserId, isAdmin = false, onCre
           </dl>
         </details>
         <details className="group">
-          <summary className="flex min-h-9 cursor-pointer list-none items-center gap-1.5 font-medium text-muted-foreground hover:text-foreground">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center gap-1.5 font-medium text-muted-foreground hover:text-foreground">
             <Brain size={13} aria-hidden="true" /> What Quick add has learned{learnedCount > 0 ? ` (${learnedCount})` : ''}
           </summary>
           <div className="mt-2 rounded-xl bg-background p-3 text-[11px]">

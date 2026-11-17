@@ -65,7 +65,19 @@
 @layer base {
   * { @apply border-border; }
   body { @apply bg-background text-foreground font-sans antialiased; font-feature-settings: "rlig" 1, "calt" 1; }
-  html { scroll-behavior: smooth; }
+  html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  /* No 300ms tap delay / double-tap zoom on things you press. */
+  a, button, [role='button'], [role='switch'], summary, select, label { touch-action: manipulation; }
+  /* Take the grey flash off taps; the app has its own pressed/hover styles. */
+  a, button { -webkit-tap-highlight-color: transparent; }
+
+  @media (pointer: coarse) {
+    /* iPhone Safari zooms the whole page in when a text field smaller than 16px gets focus,
+       and doesn't zoom back out. 16px on touch screens avoids it (desktop is unchanged). */
+    input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']):not([type='submit']):not([type='button']),
+    textarea,
+    select { font-size: 16px !important; }
+  }
   :focus-visible { @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background; }
 }
 

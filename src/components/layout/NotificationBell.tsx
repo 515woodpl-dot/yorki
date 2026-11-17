@@ -91,7 +91,7 @@ export default function NotificationBell({ align = 'right' }: { align?: 'left' |
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="relative inline-flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded-lg sm:rounded-md text-muted-foreground hover:bg-accent/60 hover:text-foreground transition-colors"
+        className="relative inline-flex h-11 w-11 lg:h-8 lg:w-8 items-center justify-center rounded-lg sm:rounded-md text-muted-foreground hover:bg-accent/60 hover:text-foreground transition-colors"
         aria-label={unread > 0 ? `Notifications (${unread} unread)` : 'Notifications'}
       >
         <Bell size={16} strokeWidth={1.9} />

@@ -122,7 +122,14 @@ const config: Config = {
       },
     },
   },
-  plugins: [],
+  plugins: [
+    // `coarse:` = touch screens (phones, tablets), `fine:` = mouse. Lets a control be a comfortable
+    // 44px on touch and stay compact on desktop, whatever the screen width.
+    ({ addVariant }: { addVariant: (name: string, definition: string) => void }) => {
+      addVariant('coarse', '@media (pointer: coarse)')
+      addVariant('fine', '@media (pointer: fine)')
+    },
+  ],
 }
 
 export default config

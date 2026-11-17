@@ -70,7 +70,7 @@ export default function LoginForm() {
             onChange={e => setPassword(e.target.value)}
             placeholder="••••••••"
             className={cn(
-              'w-full h-10 px-3 pr-10 rounded-lg border bg-background text-foreground text-sm',
+              'w-full h-11 px-3 pr-11 rounded-lg border bg-background text-foreground text-sm fine:h-10',
               'placeholder:text-muted-foreground',
               'focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-colors',
               error ? 'border-destructive' : 'border-input'
@@ -79,7 +79,9 @@ export default function LoginForm() {
           <button
             type="button"
             onClick={() => setShowPass(v => !v)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+            aria-label={showPass ? 'Hide password' : 'Show password'}
+            aria-pressed={showPass}
+            className="absolute right-0 top-0 flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground transition-colors fine:h-10"
           >
             {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
           </button>
