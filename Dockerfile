@@ -48,6 +48,9 @@ COPY --from=build --chown=nextjs:nodejs /app/package.json ./
 COPY --from=prod-deps --chown=nextjs:nodejs /app/node_modules ./node_modules
 COPY --from=build --chown=nextjs:nodejs /app/.next ./.next
 COPY --from=build --chown=nextjs:nodejs /app/public ./public
+# Required at runtime: without it `next start` forgets the /task prefix the build used,
+# and the page's JavaScript silently never starts.
+COPY --from=build --chown=nextjs:nodejs /app/next.config.mjs ./next.config.mjs
 
 USER nextjs
 
