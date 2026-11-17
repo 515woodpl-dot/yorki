@@ -75,9 +75,19 @@ interface Props {
   onSubmit: () => void
   placeholder?: string
   className?: string
+  /** Chat style: Enter sends, Shift+Enter adds a line. (Ctrl/Cmd+Enter always sends.) */
+  enterToSubmit?: boolean
+  rows?: number
+  /** Where the suggestion list opens. */
+  menuPosition?: 'above' | 'below'
+  disabled?: boolean
+  ariaLabel?: string
 }
 
-export default function MentionTextarea({ value, onChange, candidates, onPick, onSubmit, placeholder, className }: Props) {
+export default function MentionTextarea({
+  value, onChange, candidates, onPick, onSubmit, placeholder, className,
+  enterToSubmit = false, rows = 3, menuPosition = 'above', disabled = false, ariaLabel,
+}: Props) {
   const ref = useRef<HTMLTextAreaElement>(null)
   const [query, setQuery] = useState<{ text: string; start: number } | null>(null)
   const [highlight, setHighlight] = useState(0)
@@ -127,7 +137,9 @@ export default function MentionTextarea({ value, onChange, candidates, onPick, o
         ref={ref}
         value={value}
         placeholder={placeholder}
-        rows={3}
+        rows={rows}
+        disabled={disabled}
+        aria-label={ariaLabel}
         onChange={(event) => {
           onChange(event.target.value)
           detectQuery(event.target.value, event.target.selectionStart ?? event.target.value.length)
@@ -141,13 +153,23 @@ export default function MentionTextarea({ value, onChange, candidates, onPick, o
             if (event.key === 'Enter' || event.key === 'Tab') { event.preventDefault(); pick(matches[highlight]); return }
             if (event.key === 'Escape') { event.preventDefault(); setQuery(null); return }
           }
-          if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) onSubmit()
+          if (event.key !== 'Enter' || event.nativeEvent.isComposing) return
+          if (event.metaKey || event.ctrlKey || (enterToSubmit && !event.shiftKey)) {
+            event.preventDefault()
+            onSubmit()
+          }
         }}
         className={className}
         aria-autocomplete="list"
       />
       {matches.length > 0 && (
-        <div role="listbox" className="absolute left-2 bottom-full mb-1 z-30 w-64 rounded-xl border border-border bg-card shadow-xl py-1 animate-scale-in">
+        <div
+          role="listbox"
+          className={cn(
+            'absolute left-2 z-30 w-64 rounded-xl border border-border bg-card shadow-xl py-1 animate-scale-in',
+            menuPosition === 'above' ? 'bottom-full mb-1' : 'top-full mt-1',
+          )}
+        >
           <p className="px-3 pt-1 pb-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">Mention someone</p>
           {matches.map((user, index) => (
             <button

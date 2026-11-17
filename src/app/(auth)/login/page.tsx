@@ -11,7 +11,7 @@ export default async function LoginPage({
   const timedOut = reason === 'timeout'
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center px-4 relative overflow-hidden">
+    <div className="min-h-dvh bg-background flex items-center justify-center px-4 relative overflow-hidden">
 
       {/* Subtle background orbs */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">

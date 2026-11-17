@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Columns3, History, Mail, Settings2, Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -15,10 +16,29 @@ const items = [
 
 export default function AdminNav() {
   const pathname = usePathname()
+  const scroller = useRef<HTMLDivElement>(null)
+  const [more, setMore] = useState({ left: false, right: false })
+
+  const measure = useCallback(() => {
+    const el = scroller.current
+    if (!el) return
+    setMore({ left: el.scrollLeft > 4, right: el.scrollLeft + el.clientWidth < el.scrollWidth - 4 })
+  }, [])
+
+  // On a phone the strip is wider than the screen: bring the current tab into view,
+  // and fade the edge that still has tabs hidden behind it.
+  useEffect(() => {
+    const el = scroller.current
+    const current = el?.querySelector<HTMLElement>('[aria-current="page"]')
+    if (el && current) el.scrollLeft = Math.max(0, current.offsetLeft - (el.clientWidth - current.offsetWidth) / 2)
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [pathname, measure])
 
   return (
-    <nav aria-label="Administration" className="mb-8 border-b border-border/70 sm:mb-10">
-      <div className="flex gap-1 overflow-x-auto pb-px [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+    <nav aria-label="Administration" className="relative mb-8 border-b border-border/70 sm:mb-10">
+      <div ref={scroller} onScroll={measure} className="flex gap-1 overflow-x-auto pb-px [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {items.map(({ href, label, icon: Icon }) => {
           const active = pathname === href || pathname.startsWith(`${href}/`)
           return (
@@ -29,6 +49,8 @@ export default function AdminNav() {
           )
         })}
       </div>
+      <span aria-hidden="true" className={cn('pointer-events-none absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-background to-transparent transition-opacity', more.left ? 'opacity-100' : 'opacity-0')} />
+      <span aria-hidden="true" className={cn('pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-background to-transparent transition-opacity', more.right ? 'opacity-100' : 'opacity-0')} />
     </nav>
   )
 }

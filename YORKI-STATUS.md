@@ -71,6 +71,28 @@ each other:
 - Email for @mentions (Admin → Email → "@mentions", on by default) when
   Resend or SMTP is configured. Other notifications are in-app only.
 
+### Push notifications
+- Alerts on phones and computers even when Yorki is closed: mentions, assignments, comments on your
+  cards, completed cards. Per-device opt-in, per-type switches, optional private lock-screen text,
+  app-icon badge, tap opens the card. iPhone works from the Home Screen app (iOS 16.4+).
+- Nothing to configure (signing key is created automatically); signing out removes that device.
+- Encrypted end to end; the server only posts to the real push services. See `docs/PUSH.md`.
+
+### Quick add (chat box)
+- Type a sentence on the board (e.g. "I want @Mia to call the supplier by Friday, urgent")
+  and get editable cards from it — people, dates, times, priority and labels are picked
+  out by plain rules (no AI). Live preview, then Enter to create. See `docs/QUICK-ADD.md`.
+- English and Spanish (and a mix of both); accents optional; Spanish titles use the infinitive.
+- Reads whole briefs (e.g. a long all-caps message to one person) as one card: assignee, deadline
+  ("tienes 2 semanas"), priority ("tu mayor task"), clean title, deliverables as a checklist,
+  original message as the description.
+- Guesses misspelled dates/urgency words and @names, and shows each guess.
+- Learns as a team: nicknames fixed in the preview ("Who is Jimmy?", which "Ana") are shared by
+  everyone (`quick_add_alias_votes`, one vote per person, majority wins, real names protected,
+  admins can remove). Date habits ("next Friday", "5/12") stay personal (`quick_add_memory`).
+- Suggests people / priority / labels from past cards (one click, never automatic), matching by
+  meaning via a bilingual concept dictionary (leak = gotera = fuga). Roadmap in docs/QUICK-ADD.md.
+
 ### File Attachments
 - Upload images and files via Submit form
 - Files saved to `public/uploads/<task_id>/`

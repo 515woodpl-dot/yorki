@@ -101,7 +101,7 @@ export default function UsersClient({ initialUsers, isSuperAdmin }: Props) {
       {/* User list */}
       <div className="divide-y divide-border border border-border rounded-xl overflow-hidden">
         {users.map(user => (
-          <div key={user.id} className={cn('flex items-center gap-3 px-4 py-3 bg-card', !user.is_active && 'opacity-50')}>
+          <div key={user.id} className={cn('flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 bg-card', !user.is_active && 'opacity-50')}>
             <div className="w-9 h-9 rounded-full bg-primary/10 text-primary font-semibold text-sm flex items-center justify-center shrink-0">
               {getUserInitials(user.full_name)}
             </div>
@@ -113,21 +113,23 @@ export default function UsersClient({ initialUsers, isSuperAdmin }: Props) {
               <p className="text-xs text-muted-foreground truncate">{user.email}</p>
             </div>
 
-            {/* Role */}
-            <div className="shrink-0">
+            {/* Role + actions: a second line under the name on phones, inline from `sm` up */}
+            <div className="flex w-full items-center gap-1 pl-0 min-[360px]:pl-12 sm:w-auto sm:pl-0">
+            <div className="mr-auto shrink-0 sm:mr-2">
               {isSuperAdmin && user.role !== 'super_admin' ? (
                 <div className="relative">
                   <select
                     value={user.role}
                     onChange={e => handleRoleChange(user.id, e.target.value as 'staff' | 'admin')}
                     disabled={isPending}
-                    className="h-7 pl-2 pr-7 rounded-lg border border-input bg-background text-xs appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    aria-label={`Role for ${getUserDisplayName(user)}`}
+                    className="h-10 pl-3 pr-8 rounded-lg border border-input bg-background text-xs appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/50 fine:h-8"
                   >
                     {(['staff', 'admin'] as const).map(r => (
                       <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>
                     ))}
                   </select>
-                  <ChevronDown size={11} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                  <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                 </div>
               ) : (
                 <span className={cn(
@@ -147,7 +149,8 @@ export default function UsersClient({ initialUsers, isSuperAdmin }: Props) {
                 onClick={() => handleResendInvite(user.id, user.email ?? '')}
                 disabled={isPending}
                 title="Resend invite email"
-                className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors shrink-0"
+                aria-label={`Resend invite email to ${getUserDisplayName(user)}`}
+                className="h-10 w-10 fine:h-8 fine:w-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors shrink-0"
               >
                 <Mail size={13} />
               </button>
@@ -158,7 +161,8 @@ export default function UsersClient({ initialUsers, isSuperAdmin }: Props) {
               <button
                 onClick={() => { setPwUserId(user.id); setPwValue('') }}
                 title="Set password"
-                className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors shrink-0"
+                aria-label={`Set password for ${getUserDisplayName(user)}`}
+                className="h-10 w-10 fine:h-8 fine:w-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors shrink-0"
               >
                 <KeyRound size={13} />
               </button>
@@ -170,8 +174,9 @@ export default function UsersClient({ initialUsers, isSuperAdmin }: Props) {
                 onClick={() => handleToggleActive(user.id, user.is_active)}
                 disabled={isPending}
                 title={user.is_active ? 'Deactivate' : 'Activate'}
+                aria-label={`${user.is_active ? 'Deactivate' : 'Activate'} ${getUserDisplayName(user)}`}
                 className={cn(
-                  'w-7 h-7 rounded-lg flex items-center justify-center transition-colors shrink-0',
+                  'h-10 w-10 fine:h-8 fine:w-8 rounded-lg flex items-center justify-center transition-colors shrink-0',
                   user.is_active
                     ? 'text-muted-foreground hover:text-destructive hover:bg-destructive/10'
                     : 'text-muted-foreground hover:text-green-600 hover:bg-green-100 dark:hover:bg-green-900/30'
@@ -186,11 +191,13 @@ export default function UsersClient({ initialUsers, isSuperAdmin }: Props) {
                 onClick={() => handleDeleteUser(user.id, getUserDisplayName(user))}
                 disabled={isPending}
                 title="Delete user"
-                className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors shrink-0"
+                aria-label={`Delete ${getUserDisplayName(user)}`}
+                className="h-10 w-10 fine:h-8 fine:w-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors shrink-0"
               >
                 <Trash2 size={13} />
               </button>
             )}
+            </div>
           </div>
         ))}
       </div>

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex">
+  <title>Yorki — offline</title>
+  <!-- Self-contained on purpose: this page must work with no network, no scripts bundle and no other files. -->
+  <style>
+    :root { color-scheme: light dark; --bg: #eff4fa; --card: #fff; --text: #0e1220; --muted: #5b6785; --brand: #2f3650; --dot: #6a97c4; --line: #d9e2ee; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #0e1118; --card: #171d2b; --text: #e8ebf2; --muted: #93a0bd; --brand: #a9c4e6; --dot: #6a97c4; --line: #262f45; } }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; padding: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
+      background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    main { width: 100%; max-width: 26rem; background: var(--card); border: 1px solid var(--line); border-radius: 24px; padding: 32px 28px; text-align: center; box-shadow: 0 12px 40px -16px rgba(20, 30, 60, .25); }
+    .mark { display: inline-flex; align-items: flex-end; font-size: 64px; line-height: 1; font-weight: 900; letter-spacing: -.05em; color: var(--brand); }
+    .mark i { width: 12px; height: 12px; margin: 0 0 22px -4px; border-radius: 3px; background: var(--dot); }
+    h1 { margin: 12px 0 4px; font-size: 1.5rem; }
+    p { margin: 0 0 6px; color: var(--muted); }
+    .es { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+    h2 { margin: 0 0 4px; font-size: 1.05rem; color: var(--text); }
+    button { margin-top: 22px; min-height: 48px; padding: 0 28px; border: 0; border-radius: 14px; background: var(--brand); color: #fff; font: inherit; font-weight: 600; cursor: pointer; touch-action: manipulation; }
+    @media (prefers-color-scheme: dark) { button { color: #0e1118; } }
+    button:focus-visible { outline: 3px solid var(--dot); outline-offset: 3px; }
+  </style>
+</head>
+<body>
+  <main role="main">
+    <span class="mark" aria-hidden="true">Y<i></i></span>
+    <h1>You’re offline</h1>
+    <p>Yorki needs a connection to show live tasks, comments and uploads. Check your Wi‑Fi or mobile data, then try again.</p>
+    <div class="es" lang="es">
+      <h2>Sin conexión</h2>
+      <p>Yorki necesita internet para mostrar tareas, comentarios y archivos. Revisa tu Wi‑Fi o datos móviles e inténtalo de nuevo.</p>
+    </div>
+    <button type="button" onclick="location.reload()">Try again · Reintentar</button>
+  </main>
+  <script>
+    // Reload by itself the moment the connection comes back.
+    addEventListener('online', function () { location.reload() })
+  </script>
+</body>
+</html>

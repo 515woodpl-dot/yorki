@@ -236,6 +236,61 @@ function migrate(db: Database.Database) {
       read_at    TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, created_at);
+
+    -- Quick add: what each person taught it (nicknames, date preferences).
+    CREATE TABLE IF NOT EXISTS quick_add_memory (
+      user_id    TEXT NOT NULL,
+      kind       TEXT NOT NULL,   -- 'alias' | 'pref'
+      key        TEXT NOT NULL,   -- 'jimmy' | 'nextWeekday' | 'numericOrder'
+      value      TEXT NOT NULL,   -- person id | preference value
+      hits       INTEGER NOT NULL DEFAULT 1,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, kind, key)
+    );
+
+    -- Quick add nicknames are shared by the whole team. Each person has one vote
+    -- per nickname ("jimmy" → James); the person with the most votes wins.
+    CREATE TABLE IF NOT EXISTS quick_add_alias_votes (
+      key        TEXT NOT NULL,
+      person_id  TEXT NOT NULL,
+      user_id    TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (key, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_quick_add_alias_votes_key ON quick_add_alias_votes(key);
+
+    -- Web Push: one row per browser/phone that agreed to receive alerts.
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      id              TEXT PRIMARY KEY,           -- first 16 hex chars of sha256(endpoint)
+      user_id         TEXT NOT NULL,
+      endpoint        TEXT NOT NULL UNIQUE,
+      p256dh          TEXT NOT NULL,
+      auth            TEXT NOT NULL,
+      label           TEXT,
+      created_at      TEXT NOT NULL,
+      last_success_at TEXT,
+      last_error      TEXT,
+      failures        INTEGER NOT NULL DEFAULT 0  -- consecutive; the row is dropped after too many
+    );
+    CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions(user_id);
+
+    -- What each person wants pushed (all on by default).
+    CREATE TABLE IF NOT EXISTS push_prefs (
+      user_id      TEXT PRIMARY KEY,
+      mention      INTEGER NOT NULL DEFAULT 1,
+      comment      INTEGER NOT NULL DEFAULT 1,
+      assigned     INTEGER NOT NULL DEFAULT 1,
+      completed    INTEGER NOT NULL DEFAULT 1,
+      show_preview INTEGER NOT NULL DEFAULT 1,    -- show names / task titles on the lock screen
+      updated_at   TEXT NOT NULL
+    );
+  `)
+
+  // One-time move: nicknames learned per person (before team-wide memory) become their votes.
+  db.exec(`
+    INSERT OR IGNORE INTO quick_add_alias_votes (key, person_id, user_id, updated_at)
+      SELECT key, value, user_id, updated_at FROM quick_add_memory WHERE kind = 'alias';
+    DELETE FROM quick_add_memory WHERE kind = 'alias';
   `)
 
   // Seed if empty

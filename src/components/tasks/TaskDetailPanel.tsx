@@ -630,7 +630,7 @@ export default function TaskDetailPanel({
               <button
                 type="button"
                 onClick={toggleEditMode}
-                className="h-8 rounded-lg border border-border px-2.5 text-xs font-medium text-primary hover:bg-accent"
+                className="h-8 coarse:h-11 rounded-lg border border-border px-2.5 coarse:px-4 text-xs font-medium text-primary hover:bg-accent"
               >
                 {isEditingDetails ? 'Cancel edit' : 'Edit'}
               </button>
@@ -638,7 +638,7 @@ export default function TaskDetailPanel({
             <button
               onClick={onClose}
               aria-label="Close panel"
-              className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+              className="w-8 h-8 coarse:h-11 coarse:w-11 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
             >
               <X size={16} />
             </button>
@@ -691,7 +691,7 @@ export default function TaskDetailPanel({
                   {staffUsers.map((u) => {
                     const checked = selectedAssigneeIds.includes(u.id)
                     return (
-                      <label key={u.id} className="flex items-center gap-2 text-sm">
+                      <label key={u.id} className="flex items-center gap-2 text-sm coarse:min-h-11 coarse:gap-3">
                         <input
                           type="checkbox"
                           checked={checked}
@@ -742,7 +742,7 @@ export default function TaskDetailPanel({
 
             <MetaRow icon={Calendar} label="Calendar sync">
               {canEditDetails && isEditingDetails ? (
-                <label className="flex items-center gap-2 text-sm">
+                <label className="flex items-center gap-2 text-sm coarse:min-h-11 coarse:gap-3">
                   <input
                     type="checkbox"
                     checked={sendToCalendarDraft}
@@ -772,7 +772,7 @@ export default function TaskDetailPanel({
                     setSelectedColumnId(nextColumnId)
                     void handleMoveColumn(nextColumnId)
                   }}
-                  className="h-8 px-2 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  className="h-8 coarse:h-11 px-2 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
                 >
                   {columns
                     .filter((column) => !column.deleted_at)
@@ -787,7 +787,7 @@ export default function TaskDetailPanel({
 
             {isAdmin && (
               <MetaRow icon={Flag} label="Priority">
-                <div className="flex gap-1.5">
+                <div className="flex flex-wrap gap-1.5">
                   {(['low', 'normal', 'high', 'urgent'] as Priority[]).map(p => {
                     const cfg = getPriorityConfig(p)
                     return (
@@ -795,7 +795,7 @@ export default function TaskDetailPanel({
                         key={p}
                         onClick={() => handlePriorityChange(p)}
                         className={cn(
-                          'text-xs px-2 py-1 rounded-md border transition-all font-medium',
+                          'text-xs px-2 py-1 coarse:min-h-11 coarse:px-3.5 rounded-md border transition-all font-medium',
                           cfg.bgClass,
                           task.priority === p
                             ? 'ring-2 ring-offset-1 ring-offset-card'
@@ -933,7 +933,7 @@ export default function TaskDetailPanel({
                       type="button"
                       onClick={() => void handleToggleChecklistItem(idx)}
                       disabled={!canEditDetails || isSavingChecklist}
-                      className="flex w-full items-center gap-2.5 rounded-lg px-1 py-1 text-left disabled:cursor-default"
+                      className="flex w-full items-center gap-2.5 rounded-lg px-1 py-1 coarse:min-h-11 text-left disabled:cursor-default"
                     >
                       <div className={cn('flex h-5 w-5 shrink-0 items-center justify-center rounded border-2', item.checked ? 'border-primary bg-primary' : 'border-border bg-background')}>
                         {item.checked && <span className="text-[9px] font-bold text-primary-foreground">✓</span>}
@@ -1019,7 +1019,7 @@ export default function TaskDetailPanel({
                     type="button"
                     onClick={() => setIsInternal(v => !v)}
                     className={cn(
-                      'flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-colors',
+                      'flex items-center gap-1.5 text-xs px-2.5 py-1.5 coarse:min-h-11 coarse:px-3.5 rounded-lg border transition-colors',
                       isInternal
                         ? 'bg-amber-50 border-amber-300 text-amber-700 dark:bg-amber-950/40 dark:border-amber-700 dark:text-amber-400'
                         : 'border-border text-muted-foreground hover:text-foreground'
@@ -1037,7 +1037,7 @@ export default function TaskDetailPanel({
                     onClick={handleAddComment}
                     disabled={!commentBody.trim() || isPending}
                     className={cn(
-                      'flex items-center gap-1.5 h-8 px-3 rounded-lg text-sm font-medium',
+                      'flex items-center gap-1.5 h-8 coarse:h-11 px-3 coarse:px-4 rounded-lg text-sm font-medium',
                       'bg-primary text-primary-foreground',
                       'hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed',
                       'transition-all'
@@ -1058,7 +1058,7 @@ export default function TaskDetailPanel({
                 onClick={handleComplete}
                 disabled={isPending}
                 className={cn(
-                  'flex items-center gap-1.5 h-9 px-4 rounded-lg text-sm font-medium',
+                  'flex items-center gap-1.5 h-9 coarse:h-12 px-4 rounded-lg text-sm font-medium',
                   'bg-green-600 text-white hover:bg-green-700 disabled:opacity-50',
                   'transition-colors flex-1 justify-center'
                 )}
@@ -1087,7 +1087,7 @@ export default function TaskDetailPanel({
               <button
                 onClick={handleArchive}
                 disabled={isPending}
-                className="flex items-center gap-1.5 h-9 px-3 rounded-lg text-sm font-medium border border-border text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-50 transition-colors"
+                className="flex items-center gap-1.5 h-9 coarse:h-12 px-3 coarse:px-4 rounded-lg text-sm font-medium border border-border text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-50 transition-colors"
               >
                 <Archive size={14} />
                 Archive
@@ -1099,7 +1099,7 @@ export default function TaskDetailPanel({
                 onClick={handleDelete}
                 disabled={isPending}
                 className={cn(
-                  'flex items-center gap-1.5 h-9 px-3 rounded-lg text-sm font-medium transition-colors',
+                  'flex items-center gap-1.5 h-9 coarse:h-12 px-3 coarse:px-4 rounded-lg text-sm font-medium transition-colors',
                   confirmDelete
                     ? 'bg-destructive text-destructive-foreground'
                     : 'border border-border text-muted-foreground hover:text-destructive hover:border-destructive'
@@ -1171,7 +1171,7 @@ function AttachmentGrid({
             type="button"
             onClick={onUploadClick}
             disabled={isUploading}
-            className="flex h-8 items-center gap-1.5 rounded-lg border border-border px-2.5 text-xs font-medium text-foreground hover:bg-accent disabled:opacity-50"
+            className="flex h-8 coarse:h-11 items-center gap-1.5 rounded-lg border border-border px-2.5 coarse:px-4 text-xs font-medium text-foreground hover:bg-accent disabled:opacity-50"
           >
             {isUploading ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
             {isUploading ? 'Uploading…' : 'Add image'}

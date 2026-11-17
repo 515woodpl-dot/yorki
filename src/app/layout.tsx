@@ -5,6 +5,9 @@ import { getSetting } from '@/lib/local-data'
 import type { ThemeSettings } from '@/lib/types'
 import { getAppThemeForNow, type AppThemeMode } from '@/lib/utils'
 import ThemeScheduler from '@/components/theme/ThemeScheduler'
+import ThemeColorSync from '@/components/theme/ThemeColorSync'
+import { PwaRegistrar } from '@/components/pwa/PwaRegistrar'
+import OfflineBanner from '@/components/pwa/OfflineBanner'
 import ToastAutoDismiss from '@/components/system/ToastAutoDismiss'
 import '@/styles/globals.css'
 
@@ -13,10 +16,21 @@ export const metadata: Metadata = {
   description: 'Internal task and request management',
   applicationName: 'Yorki',
   robots: { index: false, follow: false },
+  // iPhone / iPad "Add to Home Screen": opens full-screen with its own name.
+  // (The icon files src/app/icon.png and apple-icon.png are linked automatically.)
+  appleWebApp: { capable: true, title: 'Yorki', statusBarStyle: 'default' },
 }
 
 export const viewport: Viewport = {
-  themeColor: '#F6F3EE',
+  width: 'device-width',
+  initialScale: 1,
+  // Draw under the notch / home bar; the layout adds env(safe-area-inset-*) padding.
+  viewportFit: 'cover',
+  // First paint, before the app's own theme is known. ThemeColorSync then keeps it exact.
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#FFFFFF' },
+    { media: '(prefers-color-scheme: dark)', color: '#171D2B' },
+  ],
 }
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
@@ -38,6 +52,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <body>
         <ThemeProvider attribute="class" defaultTheme={initialTheme} enableSystem={false} disableTransitionOnChange>
           <ThemeScheduler mode={themeMode} />
+          <ThemeColorSync />
+          <PwaRegistrar />
+          <OfflineBanner />
           <ToastAutoDismiss />
           {children}
           <Toaster

@@ -29,7 +29,7 @@ export default async function SharedTaskPage({ params }: Props) {
   const address = typeof task.custom_fields?.address === 'string' ? task.custom_fields.address : null
 
   return (
-    <main className="min-h-screen bg-[#F0F2F7] px-4 py-8 text-[#2F3650]">
+    <main className="min-h-dvh bg-[#F0F2F7] px-4 py-8 text-[#2F3650]">
       <div className="mx-auto max-w-2xl overflow-hidden rounded-[28px] border border-[#D9E2EE] bg-white shadow-[0_20px_60px_rgba(47,54,80,0.12)]">
         <div className="bg-gradient-to-br from-[#2F3650] to-[#425680] px-6 py-8 text-[#F6F3EE]">
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#B6C5DD]">Yorki Task</p>

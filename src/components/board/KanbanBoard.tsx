@@ -29,12 +29,15 @@ import { Avatar } from '@/components/layout/AppNav'
 import BoardColumn from './BoardColumn'
 import TaskCard from './TaskCard'
 import TaskDetailPanel from '../tasks/TaskDetailPanel'
+import QuickAdd, { type QuickAddPerson } from './QuickAdd'
 import { mentionsToPlainText } from '../tasks/MentionTextarea'
 
 interface Props {
   initialColumns: ColumnWithTasks[]
   currentUser:    SessionUser
   initialSeq?:    number
+  /** People who can be assigned (same list as the New request form). */
+  people?:        QuickAddPerson[]
 }
 
 
@@ -119,7 +122,7 @@ function getTaskSearchScore(task: TaskWithRelations, normalizedQuery: string, to
   return score
 }
 
-export default function KanbanBoard({ initialColumns, currentUser, initialSeq = 0 }: Props) {
+export default function KanbanBoard({ initialColumns, currentUser, initialSeq = 0, people = [] }: Props) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [columns,      setColumns]      = useState<ColumnWithTasks[]>(initialColumns)
@@ -637,9 +640,10 @@ export default function KanbanBoard({ initialColumns, currentUser, initialSeq = 
           { label: 'Completed this week', value: stats.completed, icon: CheckCircle2, color: 'text-emerald-700 dark:text-emerald-400', selected: statusFilter === 'completed', action: () => { setStatusFilter('completed'); setDueFilter('all') } },
         ].map(({ label, value, icon: Icon, color, selected, action }, index) => <button key={label} type="button" onClick={action} aria-pressed={selected} aria-label={`${label}: ${value}`} className={cn('group flex min-h-[100px] items-start justify-between rounded-2xl border bg-gradient-to-br p-4 text-left shadow-[0_5px_16px_-8px_rgba(35,67,115,0.25)] transition-all hover:-translate-y-0.5 hover:shadow-[0_10px_22px_-9px_rgba(35,67,115,0.32)] dark:border-border dark:from-slate-800 dark:to-slate-900 sm:min-h-[116px] sm:p-5', index === 0 ? 'border-indigo-200 from-white via-indigo-50 to-indigo-100' : index === 1 ? 'border-blue-200 from-white via-blue-50 to-sky-100' : index === 2 ? 'border-amber-200 from-white via-amber-50 to-amber-100' : 'border-emerald-200 from-white via-emerald-50 to-teal-100', selected && 'ring-2 ring-primary/50')}><span><span className="block text-xs font-medium text-muted-foreground">{label}</span><span className="mt-2 block text-3xl font-semibold tracking-tight tabular-nums">{value}</span></span><span className={cn('rounded-xl bg-white/80 p-2.5 shadow-sm dark:bg-white/10', color)}><Icon size={19} strokeWidth={1.8} /></span></button>)}
       </div>
+      <QuickAdd people={people} currentUserId={currentUser.id} isAdmin={currentUser.role === 'admin' || currentUser.role === 'super_admin'} onCreated={() => { void refreshBoard() }} />
       <div className="mb-5 flex flex-wrap items-center gap-2">
         <div className="relative min-w-[180px] flex-1 sm:max-w-md"><Search size={17} className="absolute left-3 top-3 text-muted-foreground" /><input aria-label="Search tasks" type="search" placeholder="Search tasks, people, or notes" value={searchQuery} onChange={event => setSearchQuery(event.target.value)} className="h-11 w-full rounded-xl border border-border bg-card pl-10 pr-9 text-sm placeholder:text-muted-foreground focus:border-primary" />{searchQuery && <button aria-label="Clear search" onClick={() => setSearchQuery('')} className="absolute right-1 top-1 flex h-9 w-8 items-center justify-center text-muted-foreground"><X size={15} /></button>}</div>
-        <div aria-label="View" className="flex h-11 rounded-xl border border-border bg-card p-1 sm:order-last sm:ml-auto">{[{ key: 'board', label: 'Board', icon: LayoutDashboard }, { key: 'list', label: 'List', icon: List }, { key: 'calendar', label: 'Calendar', icon: CalendarDays }].map(({ key, label, icon: Icon }) => <button key={key} aria-label={`${label} view`} aria-pressed={view === key} onClick={() => changeView(key)} className={cn('flex items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium', view === key ? 'bg-blue-100/70 text-primary dark:bg-primary/15' : 'text-muted-foreground hover:bg-accent/40')}><Icon size={15} /><span className="hidden xl:inline">{label}</span></button>)}</div>
+        <div aria-label="View" className="flex h-11 coarse:h-auto rounded-xl border border-border bg-card p-1 sm:order-last sm:ml-auto">{[{ key: 'board', label: 'Board', icon: LayoutDashboard }, { key: 'list', label: 'List', icon: List }, { key: 'calendar', label: 'Calendar', icon: CalendarDays }].map(({ key, label, icon: Icon }) => <button key={key} aria-label={`${label} view`} aria-pressed={view === key} onClick={() => changeView(key)} className={cn('flex items-center gap-1.5 rounded-lg px-2.5 coarse:h-10 coarse:min-w-11 coarse:justify-center text-xs font-medium', view === key ? 'bg-blue-100/70 text-primary dark:bg-primary/15' : 'text-muted-foreground hover:bg-accent/40')}><Icon size={15} /><span className="hidden xl:inline">{label}</span></button>)}</div>
         <div className="flex w-full flex-wrap gap-2 sm:w-auto">
           <select aria-label="Filter by assignee" value={assigneeFilter} onChange={event => setAssigneeFilter(event.target.value)} className="h-11 min-w-0 flex-1 rounded-xl border border-border bg-card px-2 text-xs text-foreground sm:max-w-[150px]"><option value="all">All assignees</option><option value="unassigned">Unassigned</option>{assigneeOptions.map(user => <option key={user.id} value={user.id}>{getUserDisplayName(user)}</option>)}</select>
           <select aria-label="Filter by priority" value={priorityFilter} onChange={event => setPriorityFilter(event.target.value)} className="h-11 min-w-0 flex-1 rounded-xl border border-border bg-card px-2 text-xs text-foreground sm:max-w-[130px]"><option value="all">All priorities</option>{['urgent', 'high', 'normal', 'low'].map(priority => <option key={priority} value={priority}>{priority[0].toUpperCase() + priority.slice(1)}</option>)}</select>
@@ -647,10 +651,10 @@ export default function KanbanBoard({ initialColumns, currentUser, initialSeq = 
         </div>
       </div>
       <div className="mb-4 flex min-h-8 flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-        <div className="flex gap-1 sm:hidden">{[{ key: 'all', label: 'All' }, { key: 'today', label: 'Today' }, { key: 'upcoming', label: 'Upcoming' }, { key: 'overdue', label: 'Overdue' }].map(({ key, label }) => <button key={key} onClick={() => { setDueFilter(key); setStatusFilter('all') }} aria-pressed={dueFilter === key} className={cn('min-h-10 rounded-lg px-3 font-medium', dueFilter === key ? 'bg-primary/10 text-primary' : 'hover:bg-accent/40')}>{label}</button>)}</div>
+        <div className="flex gap-1 sm:hidden">{[{ key: 'all', label: 'All' }, { key: 'today', label: 'Today' }, { key: 'upcoming', label: 'Upcoming' }, { key: 'overdue', label: 'Overdue' }].map(({ key, label }) => <button key={key} onClick={() => { setDueFilter(key); setStatusFilter('all') }} aria-pressed={dueFilter === key} className={cn('min-h-10 min-w-11 rounded-lg px-3 font-medium', dueFilter === key ? 'bg-primary/10 text-primary' : 'hover:bg-accent/40')}>{label}</button>)}</div>
         <span aria-live="polite" className="hidden sm:inline">{totalMatches} task{totalMatches === 1 ? '' : 's'}{hasFilters ? ' matching your filters' : ' in this view'}</span>
         {hasFilters && <button onClick={resetFilters} className="flex min-h-9 items-center gap-1.5 rounded-lg px-2 hover:bg-accent/50"><X size={13} />Clear filters</button>}
-        {isAdmin && <Link href="/admin/columns" className="ml-auto hidden min-h-9 items-center gap-1.5 rounded-lg px-2 hover:bg-accent/50 sm:flex"><SlidersHorizontal size={14} />Manage columns</Link>}
+        {isAdmin && <Link href="/admin/columns" className="ml-auto hidden min-h-9 coarse:min-h-11 items-center gap-1.5 rounded-lg px-2 hover:bg-accent/50 sm:flex"><SlidersHorizontal size={14} />Manage columns</Link>}
       </div>
       {totalMatches === 0 ? <div className="my-8 flex min-h-[240px] flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card/50 p-8 text-center"><CheckSquareIcon /><h2 className="mt-4 text-lg font-semibold">{hasFilters ? 'No tasks match these filters' : 'A little breathing room'}</h2><p className="mt-2 max-w-sm text-sm text-muted-foreground">{hasFilters ? 'Try another search or clear your filters to see more work.' : mine ? 'Tasks you create or are assigned to will appear here.' : 'Create a task to get your team’s next job moving.'}</p>{hasFilters ? <button onClick={resetFilters} className="mt-5 min-h-11 rounded-xl bg-primary px-5 text-sm font-medium text-primary-foreground">Clear filters</button> : <Link href="/submit" className="mt-5 min-h-11 rounded-xl bg-primary px-5 py-3 text-sm font-medium text-primary-foreground">Create a task</Link>}</div> : view === 'board' ? <>
         <div className="mb-4 flex gap-2 overflow-x-auto pb-1 sm:hidden">{filteredColumns.map(column => <button key={column.id} onClick={() => setMobileColumnId(column.id)} className={cn('min-h-11 shrink-0 rounded-xl border px-4 text-xs font-semibold', visibleMobileColumnId === column.id ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card')}>{column.name} ({column.tasks.length})</button>)}</div>

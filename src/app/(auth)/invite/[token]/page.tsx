@@ -13,7 +13,7 @@ export default async function InvitePage({ params }: Props) {
 
   if (!invite) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center px-4">
+      <div className="min-h-dvh bg-background flex items-center justify-center px-4">
         <div className="w-full max-w-[360px] text-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={`${APP_BASE_PATH}/Yorki.png`} alt="Yorki" className="h-8 w-auto mx-auto mb-8 opacity-80" />
@@ -32,7 +32,7 @@ export default async function InvitePage({ params }: Props) {
   }
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center px-4 relative overflow-hidden">
+    <div className="min-h-dvh bg-background flex items-center justify-center px-4 relative overflow-hidden">
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -right-40 w-96 h-96 rounded-full opacity-[0.07]"
           style={{ background: 'radial-gradient(circle, #6A97C4, transparent)' }} />
