@@ -4,7 +4,7 @@ const APP_BASE_PATH = process.env.NODE_ENV === 'production' ? '/task' : ''
 
 export default function LoginPage() {
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center px-4 relative overflow-hidden">
+    <div className="min-h-dvh bg-background flex items-center justify-center px-4 relative overflow-hidden">
 
       {/* Subtle background orbs */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">

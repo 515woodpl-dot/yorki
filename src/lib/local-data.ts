@@ -31,6 +31,8 @@ function mapTask(row: Record<string, unknown>): Task {
   return {
     ...(row as unknown as Task),
     has_real_due_date: row.has_real_due_date === 1,
+    version:       typeof row.version === 'number' ? row.version : 1,
+    updated_by:    (row.updated_by as string | null | undefined) ?? null,
     labels:        JSON.parse((row.labels       as string) || '[]'),
     watchers:      JSON.parse((row.watchers     as string) || '[]'),
     custom_fields: JSON.parse((row.custom_fields as string) || '{}'),
@@ -265,44 +267,168 @@ export async function getTaskByShareToken(shareToken: string): Promise<Task | nu
   return tasks.find((task) => task.custom_fields?.share_token === shareToken) ?? null
 }
 
-export async function updateTask(taskId: string, updates: Record<string, unknown>): Promise<Task | null> {
-  const db   = getDb()
-  const n    = now()
-  const sets: string[] = ['updated_at=?']
-  const vals: unknown[] = [n]
-
-  const colMap: Record<string, string> = {
-    title: 'title', description: 'description', priority: 'priority',
-    column_id: 'column_id', assigned_to: 'assigned_to', position: 'position',
-    status: 'status', completed_at: 'completed_at', due_date: 'due_date',
-    has_real_due_date: 'has_real_due_date', google_calendar_event_id: 'google_calendar_event_id', custom_fields: 'custom_fields',
+/**
+ * Raised when a change is rejected because someone else changed the card first.
+ * `task` is the current server state so the client can show / reload it.
+ */
+export class TaskConflictError extends Error {
+  readonly code = 'conflict' as const
+  constructor(message: string, readonly task: Task | null) {
+    super(message)
+    this.name = 'TaskConflictError'
   }
+}
 
-  for (const [k, v] of Object.entries(updates)) {
-    if (k in colMap) {
-      sets.push(`${colMap[k]}=?`)
-      vals.push(
-        typeof v === 'boolean'
-          ? (v ? 1 : 0)
-          : k === 'custom_fields'
-            ? JSON.stringify(v ?? {})
-            : v,
-      )
+export interface TaskWriteOptions {
+  /** Who is making the change (stored in tasks.updated_by). */
+  actorId?: string | null
+  /**
+   * Runs inside the write transaction against the *current* row, before the
+   * update is applied. Throw (usually TaskConflictError) to reject the change.
+   * Because read + check + write happen in one IMMEDIATE transaction, two
+   * people acting on the same card can never both pass the check.
+   */
+  guard?: (current: Task) => void
+  /**
+   * Internal bookkeeping writes (e.g. storing a Google Calendar event id)
+   * should not bump the version, or they would cause false conflicts.
+   */
+  bumpVersion?: boolean
+}
+
+const TASK_COLUMN_MAP: Record<string, string> = {
+  title: 'title', description: 'description', priority: 'priority',
+  column_id: 'column_id', assigned_to: 'assigned_to', position: 'position',
+  status: 'status', completed_at: 'completed_at', due_date: 'due_date',
+  has_real_due_date: 'has_real_due_date', google_calendar_event_id: 'google_calendar_event_id', custom_fields: 'custom_fields',
+}
+
+export async function updateTask(
+  taskId: string,
+  /** Field changes, or a function computing them from the current row (runs inside the transaction). */
+  updatesOrFn: Record<string, unknown> | ((current: Task) => Record<string, unknown>),
+  options: TaskWriteOptions = {},
+): Promise<Task | null> {
+  const db = getDb()
+  const bumpVersion = options.bumpVersion ?? true
+
+  const run = db.transaction((): Task | null => {
+    const row = db.prepare('SELECT * FROM tasks WHERE id=? AND deleted_at IS NULL').get(taskId) as Record<string, unknown> | undefined
+    if (!row) return null
+    const current = mapTask(row)
+    options.guard?.(current)
+    const updates = typeof updatesOrFn === 'function' ? updatesOrFn(current) : updatesOrFn
+
+    const sets: string[] = []
+    const vals: unknown[] = []
+    if (bumpVersion) {
+      sets.push('updated_at=?', 'version=version+1', 'updated_by=?')
+      vals.push(now(), options.actorId ?? current.updated_by ?? null)
     }
+
+    for (const [k, v] of Object.entries(updates)) {
+      if (k in TASK_COLUMN_MAP) {
+        sets.push(`${TASK_COLUMN_MAP[k]}=?`)
+        vals.push(
+          typeof v === 'boolean'
+            ? (v ? 1 : 0)
+            : k === 'custom_fields'
+              ? JSON.stringify(v ?? {})
+              : v,
+        )
+      }
+    }
+    if (sets.length === 0) return current
+
+    vals.push(taskId)
+    db.prepare(`UPDATE tasks SET ${sets.join(',')} WHERE id=? AND deleted_at IS NULL`).run(...vals)
+    const updated = db.prepare('SELECT * FROM tasks WHERE id=?').get(taskId) as Record<string, unknown>
+    return mapTask(updated)
+  })
+
+  // IMMEDIATE takes the write lock up front, so the guard sees the latest row
+  // even if several server processes share the database file.
+  return run.immediate()
+}
+
+export async function moveTask(taskId: string, newColumnId: string, newPosition: number, options: TaskWriteOptions = {}): Promise<Task | null> {
+  return updateTask(taskId, { column_id: newColumnId, position: newPosition }, options)
+}
+
+export async function softDeleteTask(taskId: string, options: Pick<TaskWriteOptions, 'actorId' | 'guard'> = {}): Promise<boolean> {
+  const db = getDb()
+  const run = db.transaction((): boolean => {
+    const row = db.prepare('SELECT * FROM tasks WHERE id=? AND deleted_at IS NULL').get(taskId) as Record<string, unknown> | undefined
+    if (!row) return false
+    options.guard?.(mapTask(row))
+    const n = now()
+    db.prepare('UPDATE tasks SET deleted_at=?, updated_at=?, version=version+1, updated_by=? WHERE id=?')
+      .run(n, n, options.actorId ?? null, taskId)
+    return true
+  })
+  return run.immediate()
+}
+
+// ─── Live board: change feed ─────────────────────────────────────────────────
+
+export function recordBoardEvent(input: { boardId?: string; taskId?: string | null; actorId?: string | null; type: string }) {
+  const db = getDb()
+  const info = db.prepare(`
+    INSERT INTO board_events (board_id, task_id, actor_id, type, created_at) VALUES (?,?,?,?,?)
+  `).run(input.boardId ?? DEFAULT_BOARD_ID, input.taskId ?? null, input.actorId ?? null, input.type, now())
+
+  // Keep the feed small: it is only a "something changed" signal.
+  if (Number(info.lastInsertRowid) % 500 === 0) {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+    db.prepare('DELETE FROM board_events WHERE created_at < ?').run(cutoff)
   }
-
-  vals.push(taskId)
-  db.prepare(`UPDATE tasks SET ${sets.join(',')} WHERE id=? AND deleted_at IS NULL`).run(...vals)
-  return getTaskById(taskId)
 }
 
-export async function moveTask(taskId: string, newColumnId: string, newPosition: number): Promise<void> {
-  getDb().prepare('UPDATE tasks SET column_id=?, position=?, updated_at=? WHERE id=? AND deleted_at IS NULL')
-    .run(newColumnId, newPosition, now(), taskId)
+export function getLatestBoardEventSeq(boardId = DEFAULT_BOARD_ID): number {
+  const row = getDb().prepare('SELECT MAX(seq) AS seq FROM board_events WHERE board_id=?').get(boardId) as { seq: number | null }
+  return row.seq ?? 0
 }
 
-export async function softDeleteTask(taskId: string): Promise<void> {
-  getDb().prepare('UPDATE tasks SET deleted_at=?, updated_at=? WHERE id=?').run(now(), now(), taskId)
+// ─── Live board: presence ("who has this card open") ────────────────────────
+
+export const PRESENCE_TTL_MS = 45_000
+
+export function upsertTaskPresence(input: { clientId: string; userId: string; taskId: string; mode: string }) {
+  getDb().prepare(`
+    INSERT INTO task_presence (client_id, user_id, task_id, mode, updated_at) VALUES (?,?,?,?,?)
+    ON CONFLICT(client_id) DO UPDATE SET
+      user_id=excluded.user_id, task_id=excluded.task_id, mode=excluded.mode, updated_at=excluded.updated_at
+  `).run(input.clientId, input.userId, input.taskId, input.mode, now())
+}
+
+export function clearTaskPresence(clientId: string, userId: string) {
+  getDb().prepare('DELETE FROM task_presence WHERE client_id=? AND user_id=?').run(clientId, userId)
+}
+
+export function getActiveTaskPresence() {
+  const db = getDb()
+  const cutoff = new Date(Date.now() - PRESENCE_TTL_MS).toISOString()
+  db.prepare('DELETE FROM task_presence WHERE updated_at < ?').run(cutoff)
+  return db.prepare(`
+    SELECT p.task_id, p.user_id, p.mode, COALESCE(u.full_name, u.display_name, u.email, 'Someone') AS user_name
+    FROM task_presence p
+    JOIN users u ON u.id = p.user_id
+    ORDER BY p.task_id, p.user_id
+  `).all() as Array<{ task_id: string; user_id: string; mode: 'viewing' | 'editing'; user_name: string }>
+}
+
+/** Cheap fingerprint of presence, so the live stream can tell when it changed. */
+export function getTaskPresenceSignature(): string {
+  const cutoff = new Date(Date.now() - PRESENCE_TTL_MS).toISOString()
+  const row = getDb().prepare(`
+    SELECT group_concat(entry, '|') AS sig FROM (
+      SELECT task_id || ':' || user_id || ':' || mode AS entry
+      FROM task_presence WHERE updated_at >= ?
+      GROUP BY task_id, user_id, mode
+      ORDER BY entry
+    )
+  `).get(cutoff) as { sig: string | null }
+  return row.sig ?? ''
 }
 
 // ─── Comments ────────────────────────────────────────────────────────────────

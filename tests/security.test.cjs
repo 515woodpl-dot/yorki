@@ -107,11 +107,21 @@ test('user profiles never expose password hashes', async () => {
 })
 
 function loadTs(file, dependencies = {}) {
+  if (dependencies['@/lib/local-data']) {
+    dependencies['@/lib/local-data'] = {
+      TaskConflictError: class TaskConflictError extends Error {},
+      getLatestBoardEventSeq: () => 0,
+      recordBoardEvent: () => {},
+      ...dependencies['@/lib/local-data'],
+    }
+  }
   const exports = {}
   const source = ts.transpileModule(fs.readFileSync(file, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, esModuleInterop: true },
   }).outputText
   vm.runInNewContext(source, { exports, process, console, Buffer, require(name) {
+    if (name === '@/lib/collab') return loadTs('src/lib/collab.ts', dependencies)
+    if (name === '@/lib/notifications') return { notifyAssigned() {}, notifyCompleted() {} }
     return Object.hasOwn(dependencies, name) ? dependencies[name] : require(name)
   } })
   return exports
@@ -150,7 +160,7 @@ test('staff board excludes unrelated tasks and internal notes; edits preserve as
     getTaskAttachments: async () => [],
     findUser: () => null,
     getTaskById: async () => task,
-    updateTask: async (id, updates) => { saved = updates; return { ...task, ...updates } },
+    updateTask: async (id, updates, options) => { options?.guard?.(task); saved = typeof updates === 'function' ? updates(task) : updates; return { ...task, ...saved } },
     createActivityLog: async () => {},
   }
   const actions = loadTs('src/lib/actions/tasks.ts', {
@@ -268,7 +278,7 @@ test('archiving revokes public sharing and lifecycle actions reject invalid repl
       DEFAULT_BOARD_ID: 'board', getTaskById: async () => task, getTaskByShareToken: async token => task.custom_fields.share_token === token ? task : null,
       getActiveColumns: async (_board, includeArchive) => columns.filter(column => includeArchive || !column.is_archive),
       getTaskAttachments: async () => [], findUser: () => null, createActivityLog: async () => {},
-      updateTask: async (_id, updates) => { task = { ...task, ...updates }; return task },
+      updateTask: async (_id, updates, options) => { options?.guard?.(task); task = { ...task, ...(typeof updates === 'function' ? updates(task) : updates) }; return task },
     },
     './email': { sendTaskCompletedEmail: async () => {} },
     '@/lib/integrations/google-calendar': { upsertGoogleCalendarEvent: async () => ({ status: 'skipped' }), deleteGoogleCalendarEvent: async () => ({ status: 'skipped' }) },

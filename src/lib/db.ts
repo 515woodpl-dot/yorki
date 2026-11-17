@@ -195,6 +195,104 @@ function migrate(db: Database.Database) {
 
   ensureColumn(db, 'tasks', 'google_calendar_event_id', 'TEXT')
 
+  // ─── Multi-user collaboration ──────────────────────────────────────────────
+  // version: bumped on every user-visible change; used for conflict detection.
+  // updated_by: who made the last change (shown in conflict messages).
+  ensureColumn(db, 'tasks', 'version', 'INTEGER NOT NULL DEFAULT 1')
+  ensureColumn(db, 'tasks', 'updated_by', 'TEXT')
+
+  db.exec(`
+    -- Append-only change feed. Open boards watch MAX(seq) to know when to refresh.
+    CREATE TABLE IF NOT EXISTS board_events (
+      seq        INTEGER PRIMARY KEY AUTOINCREMENT,
+      board_id   TEXT NOT NULL,
+      task_id    TEXT,
+      actor_id   TEXT,
+      type       TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_board_events_board ON board_events(board_id, seq);
+
+    -- Who has which card open right now (one row per browser tab).
+    CREATE TABLE IF NOT EXISTS task_presence (
+      client_id  TEXT PRIMARY KEY,
+      user_id    TEXT NOT NULL,
+      task_id    TEXT NOT NULL,
+      mode       TEXT NOT NULL DEFAULT 'viewing',
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_task_presence_task ON task_presence(task_id);
+
+    -- In-app notifications (bell). One row per recipient.
+    CREATE TABLE IF NOT EXISTS notifications (
+      id         TEXT PRIMARY KEY,
+      user_id    TEXT NOT NULL,
+      actor_id   TEXT,
+      task_id    TEXT,
+      comment_id TEXT,
+      type       TEXT NOT NULL,
+      snippet    TEXT,
+      created_at TEXT NOT NULL,
+      read_at    TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, created_at);
+
+    -- Quick add: what each person taught it (nicknames, date preferences).
+    CREATE TABLE IF NOT EXISTS quick_add_memory (
+      user_id    TEXT NOT NULL,
+      kind       TEXT NOT NULL,   -- 'alias' | 'pref'
+      key        TEXT NOT NULL,   -- 'jimmy' | 'nextWeekday' | 'numericOrder'
+      value      TEXT NOT NULL,   -- person id | preference value
+      hits       INTEGER NOT NULL DEFAULT 1,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, kind, key)
+    );
+
+    -- Quick add nicknames are shared by the whole team. Each person has one vote
+    -- per nickname ("jimmy" → James); the person with the most votes wins.
+    CREATE TABLE IF NOT EXISTS quick_add_alias_votes (
+      key        TEXT NOT NULL,
+      person_id  TEXT NOT NULL,
+      user_id    TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (key, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_quick_add_alias_votes_key ON quick_add_alias_votes(key);
+
+    -- Web Push: one row per browser/phone that agreed to receive alerts.
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      id              TEXT PRIMARY KEY,           -- first 16 hex chars of sha256(endpoint)
+      user_id         TEXT NOT NULL,
+      endpoint        TEXT NOT NULL UNIQUE,
+      p256dh          TEXT NOT NULL,
+      auth            TEXT NOT NULL,
+      label           TEXT,
+      created_at      TEXT NOT NULL,
+      last_success_at TEXT,
+      last_error      TEXT,
+      failures        INTEGER NOT NULL DEFAULT 0  -- consecutive; the row is dropped after too many
+    );
+    CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions(user_id);
+
+    -- What each person wants pushed (all on by default).
+    CREATE TABLE IF NOT EXISTS push_prefs (
+      user_id      TEXT PRIMARY KEY,
+      mention      INTEGER NOT NULL DEFAULT 1,
+      comment      INTEGER NOT NULL DEFAULT 1,
+      assigned     INTEGER NOT NULL DEFAULT 1,
+      completed    INTEGER NOT NULL DEFAULT 1,
+      show_preview INTEGER NOT NULL DEFAULT 1,    -- show names / task titles on the lock screen
+      updated_at   TEXT NOT NULL
+    );
+  `)
+
+  // One-time move: nicknames learned per person (before team-wide memory) become their votes.
+  db.exec(`
+    INSERT OR IGNORE INTO quick_add_alias_votes (key, person_id, user_id, updated_at)
+      SELECT key, value, user_id, updated_at FROM quick_add_memory WHERE kind = 'alias';
+    DELETE FROM quick_add_memory WHERE kind = 'alias';
+  `)
+
   // Seed if empty
   const boardCount = (db.prepare('SELECT COUNT(*) as n FROM boards').get() as { n: number }).n
   if (boardCount === 0) seedDb(db)
@@ -235,7 +333,10 @@ function seedDb(db: Database.Database) {
     USER2_ID,'Mia Porter','Mia','mia@yorki.local',null,'staff',null,1,null,now,now
   )
 
-  const insTask = db.prepare(`INSERT INTO tasks VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+  const insTask = db.prepare(`INSERT INTO tasks (id,board_id,column_id,title,description,status,priority,position,
+      submitted_by,assigned_to,due_date,has_real_due_date,completed_at,
+      labels,watchers,google_calendar_event_id,custom_fields,created_at,updated_at,deleted_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
   insTask.run('t-1',BOARD_ID,'c-inbox','Finalize Yorki board polish',
     'Tighten spacing, interaction feel, and visual hierarchy.',
     'new','high',1000,USER_ID,null,null,0,null,

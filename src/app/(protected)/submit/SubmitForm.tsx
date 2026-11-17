@@ -170,14 +170,19 @@ export default function SubmitForm({ staffUsers }: SubmitFormProps) {
   }
 
   const inputClass = cn(
-    'w-full px-3 rounded-lg border bg-background text-foreground',
+    'w-full px-4 rounded-xl border bg-background/60 text-foreground',
     'placeholder:text-muted-foreground text-sm',
     'focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-colors',
     'border-input'
   )
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-6">
+    <form onSubmit={handleSubmit(onSubmit)} noValidate className="grid items-start gap-4 lg:grid-cols-2">
+
+      <div className="grid items-start gap-4 lg:grid-cols-2 lg:col-span-2">
+        <div className="space-y-4">
+      <section className="space-y-4 rounded-2xl border border-border/70 bg-card p-5 shadow-sm sm:p-6">
+      <div className="flex items-start gap-4 border-b border-border/70 pb-5"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-100 text-sm font-bold text-blue-700 dark:bg-blue-950 dark:text-blue-300"><Type size={17} aria-hidden="true" /></span><div><h2 className="text-lg font-semibold tracking-tight">The essentials</h2><p className="mt-1 text-sm text-muted-foreground">Start with the big picture. You can add the details below.</p></div></div>
 
       {/* Title */}
       <div className="space-y-1.5">
@@ -202,82 +207,14 @@ export default function SubmitForm({ staffUsers }: SubmitFormProps) {
         <textarea
           {...register('description')}
           placeholder="Provide any relevant details, context, or instructions…"
-          rows={4}
-          className={cn(inputClass, 'py-2.5 resize-none')}
-        />
-      </div>
-
-      {/* Assign to */}
-      <div className="space-y-1.5">
-        <label className="flex items-center gap-2 text-sm font-medium text-foreground">
-          <Mail size={14} className="text-muted-foreground" />
-          Assign to
-          <span className="text-xs text-muted-foreground font-normal">(optional)</span>
-        </label>
-        <div className="space-y-2 rounded-lg border border-border bg-background px-3 py-3">
-          {staffUsers.map((staffUser) => {
-            const checked = selectedAssigneeIds.includes(staffUser.id)
-            return (
-              <label key={staffUser.id} className="flex items-center gap-3 text-sm text-foreground">
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  onChange={(e) => {
-                    setSelectedAssigneeIds((prev) => (
-                      e.target.checked
-                        ? [...prev, staffUser.id]
-                        : prev.filter((id) => id !== staffUser.id)
-                    ))
-                  }}
-                  className="h-5 w-5 shrink-0 cursor-pointer rounded border-input text-primary accent-[hsl(var(--primary))] focus:ring-primary touch-manipulation"
-                />
-                <span>{staffUser.full_name ?? staffUser.display_name ?? 'Unnamed user'}</span>
-              </label>
-            )
-          })}
-          {staffUsers.length === 0 && (
-            <p className="text-xs text-muted-foreground">No assignable users found.</p>
-          )}
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Pick one or more active users. Assigned users will all see the task, and users with an email can receive the task link.
-        </p>
-      </div>
-
-      {/* Address */}
-      <div className="space-y-1.5">
-        <label className="flex items-center gap-2 text-sm font-medium text-foreground">
-          <MapPin size={14} className="text-muted-foreground" />
-          Address
-          <span className="text-xs text-muted-foreground font-normal">(optional)</span>
-        </label>
-        <textarea
-          {...register('address')}
-          placeholder={"Street address\nCity, State, ZIP\nCountry"}
           rows={3}
           className={cn(inputClass, 'py-2.5 resize-none')}
         />
       </div>
 
-      <div className="space-y-2">
-        <label className="flex items-center gap-2 text-sm font-medium text-foreground">
-          <Calendar size={14} className="text-muted-foreground" />
-          Google Calendar
-          <span className="text-xs text-muted-foreground font-normal">(optional)</span>
-        </label>
-        <label className="flex items-center gap-3 rounded-lg border border-border bg-background px-3 py-3 text-sm text-foreground">
-          <input
-            type="checkbox"
-            {...register('send_to_calendar')}
-            className="h-5 w-5 shrink-0 cursor-pointer rounded border-input text-primary accent-[hsl(var(--primary))] focus:ring-primary touch-manipulation"
-          />
-          <span>Send this task to Google Calendar</span>
-        </label>
-        <p className="text-xs text-muted-foreground">
-          Only checked tasks will be sent to the calendar.
-        </p>
-      </div>
-
+      </section>
+      <section className="space-y-4 rounded-2xl border border-border/70 bg-card p-5 shadow-sm sm:p-6">
+      <div className="flex items-start gap-4 border-b border-border/70 pb-5"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-sm font-bold text-amber-800 dark:bg-amber-950 dark:text-amber-300"><Flag size={17} aria-hidden="true" /></span><div><h2 className="text-lg font-semibold tracking-tight">Plan the work</h2><p className="mt-1 text-sm text-muted-foreground">Set the priority, timing, and steps for this request.</p></div></div>
       {/* Checklist */}
       <div className="space-y-2">
         <label className="flex items-center gap-2 text-sm font-medium text-foreground">
@@ -325,7 +262,7 @@ export default function SubmitForm({ staffUsers }: SubmitFormProps) {
           type="button"
           onClick={addChecklistItem}
           className={cn(
-            'flex items-center gap-1.5 h-9 px-3 rounded-lg border border-dashed border-border',
+            'flex items-center gap-1.5 h-9 coarse:h-11 px-3 rounded-lg border border-dashed border-border',
             'text-sm text-muted-foreground hover:text-foreground hover:border-primary/40 hover:bg-accent/30',
             'transition-colors'
           )}
@@ -347,9 +284,11 @@ export default function SubmitForm({ staffUsers }: SubmitFormProps) {
               key={value}
               type="button"
               data-sel={selectedPriority === value}
+              aria-label={label}
+              aria-pressed={selectedPriority === value}
               onClick={() => setValue('priority', value)}
               className={cn(
-                'h-10 rounded-lg border text-sm font-medium flex items-center justify-center gap-1.5 transition-all',
+                'h-12 rounded-xl border text-sm font-medium flex items-center justify-center gap-1.5 transition-all',
                 color,
                 selectedPriority === value && 'ring-2 ring-offset-1 ring-offset-background'
               )}
@@ -362,6 +301,7 @@ export default function SubmitForm({ staffUsers }: SubmitFormProps) {
         </div>
       </div>
 
+      <div className="grid gap-4 sm:grid-cols-2">
       {/* Due date */}
       <div className="space-y-1.5">
         <label className="flex items-center gap-2 text-sm font-medium text-foreground">
@@ -396,6 +336,86 @@ export default function SubmitForm({ staffUsers }: SubmitFormProps) {
         </select>
         <p className="text-xs text-muted-foreground">
           Choose a time only when the task should land on the calendar at a specific hour.
+        </p>
+      </div>
+
+      </div>
+      </section>
+        </div>
+        <div className="space-y-4">
+      <section className="space-y-4 rounded-2xl border border-border/70 bg-card p-5 shadow-sm sm:p-6">
+      <div className="flex items-start gap-4 border-b border-border/70 pb-5"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-sm font-bold text-violet-700 dark:bg-violet-950 dark:text-violet-300"><MapPin size={17} aria-hidden="true" /></span><div><h2 className="text-lg font-semibold tracking-tight">People &amp; place</h2><p className="mt-1 text-sm text-muted-foreground">Bring the right people in and add the job location.</p></div></div>
+      {/* Assign to */}
+      <div className="space-y-1.5">
+        <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+          <Mail size={14} className="text-muted-foreground" />
+          Assign to
+          <span className="text-xs text-muted-foreground font-normal">(optional)</span>
+        </label>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {staffUsers.map((staffUser) => {
+            const checked = selectedAssigneeIds.includes(staffUser.id)
+            return (
+              <label key={staffUser.id} className={cn('flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border px-4 text-sm transition-colors', checked ? 'border-primary/60 bg-primary/5 text-foreground' : 'border-border bg-background/50 text-foreground hover:border-primary/30')}>
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(e) => {
+                    setSelectedAssigneeIds((prev) => (
+                      e.target.checked
+                        ? [...prev, staffUser.id]
+                        : prev.filter((id) => id !== staffUser.id)
+                    ))
+                  }}
+                  className="h-5 w-5 shrink-0 cursor-pointer rounded border-input text-primary accent-[hsl(var(--primary))] focus:ring-primary touch-manipulation"
+                />
+                <span>{staffUser.full_name ?? staffUser.display_name ?? 'Unnamed user'}</span>
+              </label>
+            )
+          })}
+          {staffUsers.length === 0 && (
+            <p className="text-xs text-muted-foreground">No assignable users found.</p>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Pick one or more active users. Assigned users will all see the task, and users with an email can receive the task link.
+        </p>
+      </div>
+
+      {/* Address */}
+      <div className="space-y-1.5">
+        <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+          <MapPin size={14} className="text-muted-foreground" />
+          Address
+          <span className="text-xs text-muted-foreground font-normal">(optional)</span>
+        </label>
+        <textarea
+          {...register('address')}
+          placeholder={"Street address\nCity, State, ZIP\nCountry"}
+          rows={3}
+          className={cn(inputClass, 'py-2.5 resize-none')}
+        />
+      </div>
+
+      </section>
+      <section className="space-y-4 rounded-2xl border border-border/70 bg-card p-5 shadow-sm sm:p-6">
+      <div className="flex items-start gap-4 border-b border-border/70 pb-5"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-sm font-bold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"><Paperclip size={17} aria-hidden="true" /></span><div><h2 className="text-lg font-semibold tracking-tight">The finishing details</h2><p className="mt-1 text-sm text-muted-foreground">Add any notes or files your team might need.</p></div></div>
+      <div className="space-y-2">
+        <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+          <Calendar size={14} className="text-muted-foreground" />
+          Google Calendar
+          <span className="text-xs text-muted-foreground font-normal">(optional)</span>
+        </label>
+        <label className="flex items-center gap-3 rounded-lg border border-border bg-background px-3 py-3 text-sm text-foreground">
+          <input
+            type="checkbox"
+            {...register('send_to_calendar')}
+            className="h-5 w-5 shrink-0 cursor-pointer rounded border-input text-primary accent-[hsl(var(--primary))] focus:ring-primary touch-manipulation"
+          />
+          <span>Send this task to Google Calendar</span>
+        </label>
+        <p className="text-xs text-muted-foreground">
+          Only checked tasks will be sent to the calendar.
         </p>
       </div>
 
@@ -454,11 +474,12 @@ export default function SubmitForm({ staffUsers }: SubmitFormProps) {
         </button>
       </div>
 
+      </section>
       {/* Submit */}
-      <div className="pt-2">
+      <div className="flex justify-end pb-2">
         <button type="submit" disabled={submitting}
           className={cn(
-            'w-full h-12 rounded-xl font-semibold text-sm',
+            'w-full sm:w-auto sm:min-w-56 h-12 rounded-xl font-semibold text-sm',
             'bg-primary text-primary-foreground',
             'hover:bg-primary/90 active:scale-[0.99]',
             'disabled:opacity-60 disabled:cursor-not-allowed',
@@ -466,6 +487,8 @@ export default function SubmitForm({ staffUsers }: SubmitFormProps) {
           )}>
           {submitting ? <><Loader2 size={16} className="animate-spin" />Submitting…</> : 'Submit Request'}
         </button>
+      </div>
+        </div>
       </div>
     </form>
   )

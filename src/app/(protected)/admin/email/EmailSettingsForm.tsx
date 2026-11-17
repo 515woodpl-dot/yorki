@@ -13,6 +13,7 @@ const events = [
   { key: 'notify_on_submit',   label: 'New task submitted',  desc: 'Email when a staff member submits a request' },
   { key: 'notify_on_complete', label: 'Task completed',       desc: 'Email when a task is marked as completed' },
   { key: 'notify_on_comment',  label: 'Comment added',        desc: 'Email when a comment is posted on a task' },
+  { key: 'notify_on_mention',  label: '@mentions',            desc: 'Email a person when someone @mentions them in a comment' },
 ] as const
 
 export default function EmailSettingsForm({ settings }: Props) {
@@ -25,6 +26,7 @@ export default function EmailSettingsForm({ settings }: Props) {
     notify_on_submit:   settings?.notify_on_submit   ?? true,
     notify_on_complete: settings?.notify_on_complete ?? true,
     notify_on_comment:  settings?.notify_on_comment  ?? false,
+    notify_on_mention:  settings?.notify_on_mention  ?? true,
   })
 
   function toggle(key: keyof typeof toggles) {
@@ -108,20 +110,24 @@ export default function EmailSettingsForm({ settings }: Props) {
                 type="button"
                 role="switch"
                 aria-checked={toggles[key]}
+                aria-label={label}
                 onClick={() => toggle(key)}
-                className={cn(
-                  'relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent',
-                  'transition-colors cursor-pointer mt-0.5',
-                  toggles[key] ? 'bg-primary' : 'bg-muted'
-                )}
+                className="-my-1.5 -mr-2 flex h-11 w-14 shrink-0 cursor-pointer items-center justify-center rounded-xl"
               >
                 <span
                   className={cn(
-                    'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm',
-                    'transition-transform duration-200',
-                    toggles[key] ? 'translate-x-5' : 'translate-x-0'
+                    'relative inline-flex h-6 w-11 rounded-full border-2 border-transparent transition-colors',
+                    toggles[key] ? 'bg-primary' : 'bg-muted'
                   )}
-                />
+                >
+                  <span
+                    className={cn(
+                      'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm',
+                      'transition-transform duration-200',
+                      toggles[key] ? 'translate-x-5' : 'translate-x-0'
+                    )}
+                  />
+                </span>
               </button>
             </div>
           ))}

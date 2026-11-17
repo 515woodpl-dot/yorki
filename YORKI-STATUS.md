@@ -35,6 +35,64 @@
 - Comments (public + internal admin notes)
 - Search/filter by title, description, submitter
 
+### Multi-user Collaboration
+Anyone with permission to move a card (admins, the card's submitter, its
+assignees) can work on it at the same time as others, without overwriting
+each other:
+- **Live board** — open boards update automatically (moves, edits, comments,
+  attachments, new/archived cards) via `/api/board/stream` (SSE). No refresh needed.
+- **Conflict protection** — every action says what the user saw; the server
+  checks it in the same SQLite transaction as the write:
+  - Moving a card is refused only if someone else moved / completed / archived it.
+  - Complete vs Archive (or any two status changes) — only the first succeeds;
+    the second person gets "*X updated this card … it is now completed*".
+  - Editing details sends only the changed fields. Different fields merge;
+    the same field is stopped, drafts are kept, and pressing Save again is a
+    deliberate overwrite.
+  - Delete is refused if the card changed at all since it was opened.
+- **Presence** — cards and the detail panel show who is viewing / editing.
+- **Staff** who can move a card can also Complete / Reopen it. Archive and
+  Delete stay admin-only.
+- Tasks have `version` + `updated_by` columns; `board_events` and
+  `task_presence` tables are created automatically on startup.
+- nginx: `/task/api/board/stream` needs `proxy_buffering off` (see `nginx/taskflow.conf`).
+
+### @Mentions & Notifications
+- Type `@` in a comment to pick a person. Only people who can open the card
+  are offered; in an internal note, only admins. Mentions render as chips
+  (yours highlighted). Stored as `@[Name](userId)`; the server re-validates
+  every mention, fixes forged names, and drops mentions of people without access.
+- Bell (desktop header + mobile top bar) with unread count, live updates,
+  "Mark all as read", and a toast for new mentions / assignments.
+  Clicking a notification opens the card; opening a card marks its notifications read.
+- You're notified when: someone @mentions you · comments on a card you
+  submitted or are assigned to · assigns you · completes your card.
+  Never for your own actions; staff are never notified about internal notes.
+- Email for @mentions (Admin → Email → "@mentions", on by default) when
+  Resend or SMTP is configured. Other notifications are in-app only.
+
+### Push notifications
+- Alerts on phones and computers even when Yorki is closed: mentions, assignments, comments on your
+  cards, completed cards. Per-device opt-in, per-type switches, optional private lock-screen text,
+  app-icon badge, tap opens the card. iPhone works from the Home Screen app (iOS 16.4+).
+- Nothing to configure (signing key is created automatically); signing out removes that device.
+- Encrypted end to end; the server only posts to the real push services. See `docs/PUSH.md`.
+
+### Quick add (chat box)
+- Type a sentence on the board (e.g. "I want @Mia to call the supplier by Friday, urgent")
+  and get editable cards from it — people, dates, times, priority and labels are picked
+  out by plain rules (no AI). Live preview, then Enter to create. See `docs/QUICK-ADD.md`.
+- English and Spanish (and a mix of both); accents optional; Spanish titles use the infinitive.
+- Reads whole briefs (e.g. a long all-caps message to one person) as one card: assignee, deadline
+  ("tienes 2 semanas"), priority ("tu mayor task"), clean title, deliverables as a checklist,
+  original message as the description.
+- Guesses misspelled dates/urgency words and @names, and shows each guess.
+- Learns as a team: nicknames fixed in the preview ("Who is Jimmy?", which "Ana") are shared by
+  everyone (`quick_add_alias_votes`, one vote per person, majority wins, real names protected,
+  admins can remove). Date habits ("next Friday", "5/12") stay personal (`quick_add_memory`).
+- Suggests people / priority / labels from past cards (one click, never automatic), matching by
+  meaning via a bilingual concept dictionary (leak = gotera = fuga). Roadmap in docs/QUICK-ADD.md.
+
 ### File Attachments
 - Upload images and files via Submit form
 - Files saved to `public/uploads/<task_id>/`
@@ -109,12 +167,12 @@
 - [ ] Task labels management (create/delete labels)
 - [ ] Due date editing from detail panel
 - [ ] Task title/description editing inline from detail panel
-- [ ] Watchers — notify on comment/complete
+- [x] Notify on comment/complete (submitter + assignees; see Notifications)
 - [ ] Activity log view per task
 
 ### Notifications
-- [ ] In-app notifications (bell icon)
-- [ ] Email on comment (notify_on_comment setting exists but not wired)
+- [x] In-app notifications (bell icon) + @mentions
+- [ ] Email on every comment (the "Comment added" email toggle is still not wired; @mention emails are)
 
 ### Staff Experience
 - [ ] Staff dashboard — filtered view of only assigned tasks
@@ -122,8 +180,8 @@
 
 ### Backup
 - [ ] rclone Google Drive OAuth setup docs
-- [ ] Cron job setup verification
-- [ ] Backup restore script
+- [ ] Cron job setup verification (see docs/PRODUCTION-CHECKLIST.md)
+- [ ] Backup restore script (manual steps in docs/PRODUCTION-CHECKLIST.md)
 
 ### Misc
 - [ ] Custom fields (schema exists, UI not built)

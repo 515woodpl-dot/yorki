@@ -20,14 +20,66 @@ import {
   findUser,
   createActivityLog,
   softDeleteAttachment,
+  recordBoardEvent,
+  getActiveTaskPresence,
+  getLatestBoardEventSeq,
+  TaskConflictError,
 } from '@/lib/local-data'
 import type {
-  ActionResult, ColumnWithTasks, CreateTaskInput,
-  MoveTaskInput, Task, TaskWithRelations, UpdateTaskInput,
+  ActionResult, BoardSnapshot, ColumnWithTasks, CreateTaskInput,
+  MoveTaskInput, SessionUser, Task, TaskExpectation, TaskStatus, TaskWithRelations, UpdateTaskInput,
 } from '@/lib/types'
+import { expectationGuard } from '@/lib/collab'
+import { notifyAssigned, notifyCompleted } from '@/lib/notifications'
+
+/** Notifications are best-effort: never fail the user's action because of them. */
+function safeNotify(fn: () => void) {
+  try { fn() } catch (err) { console.error('[Notifications] failed', err) }
+}
 import { sendTaskCompletedEmail, sendTaskSharedEmail, sendTaskSubmittedEmail } from './email'
 import { deleteGoogleCalendarEvent, upsertGoogleCalendarEvent } from '@/lib/integrations/google-calendar'
 import { getAssignedUserIds, isTaskAssignedToUser } from '@/lib/utils'
+
+// custom_fields keys that only admins may change (assignment + sharing).
+const PROTECTED_CUSTOM_FIELD_KEYS = [
+  'share_token', 'recipient_email', 'recipient_emails',
+  'assigned_user_id', 'assigned_user_ids', 'assigned_user_names', 'assigned_user_name',
+]
+
+function isAdminUser(user: Pick<SessionUser, 'role'>) {
+  return user.role === 'admin' || user.role === 'super_admin'
+}
+
+/** Anyone allowed to move a card may also work on it (edit, complete, reopen). */
+function canWorkOnTask(user: Pick<SessionUser, 'id' | 'role'>, task: Task) {
+  return isAdminUser(user) || task.submitted_by === user.id || isTaskAssignedToUser(task, user.id)
+}
+
+function failure(err: unknown): { success: false; error: string; code: 'conflict' | 'error' } {
+  if (err instanceof TaskConflictError) {
+    return { success: false, error: err.message, code: 'conflict' }
+  }
+  return { success: false, error: err instanceof Error ? err.message : 'Unknown error', code: 'error' }
+}
+
+function statusForColumn(column: { name: string; is_default: boolean; is_archive: boolean } | undefined, fallback: TaskStatus): TaskStatus {
+  if (!column) return fallback
+  const colName = column.name.toLowerCase()
+  if (column.is_default)            return 'new'
+  if (colName === 'pending')        return 'pending'
+  if (colName.includes('progress')) return 'in_progress'
+  if (colName.includes('complet'))  return 'completed'
+  if (column.is_archive)            return 'archived'
+  return fallback
+}
+
+function notifyBoard(task: Pick<Task, 'id' | 'board_id'>, actorId: string, type: string) {
+  try {
+    recordBoardEvent({ boardId: task.board_id, taskId: task.id, actorId, type })
+  } catch (err) {
+    console.error('[Live] failed to record board event', err)
+  }
+}
 
 const VALID_PRIORITIES = new Set(['low', 'normal', 'high', 'urgent'])
 const VALID_STATUSES = new Set(['new', 'pending', 'in_progress', 'completed', 'archived'])
@@ -108,6 +160,7 @@ async function hydrateTask(task: Task, includeInternal = true): Promise<TaskWith
   return {
     ...task,
     submitted_by_profile: submittedByProfile,
+    updated_by_profile:   task.updated_by ? findUser(task.updated_by) : null,
     assigned_to_profile:  assignedToProfile,
     assigned_to_profiles: assignedToProfiles,
     column:               taskColumn,
@@ -153,7 +206,7 @@ async function syncTaskToGoogleCalendar(task: Task) {
     const result = await upsertGoogleCalendarEvent(task, assignedUser)
     if (result.status === 'created' || result.status === 'updated') {
       if (result.eventId !== task.google_calendar_event_id) {
-        await dbUpdateTask(task.id, { google_calendar_event_id: result.eventId })
+        await dbUpdateTask(task.id, { google_calendar_event_id: result.eventId }, { bumpVersion: false })
       }
       console.log(`[Calendar] ${result.status} event for task ${task.id}: ${result.eventId}`)
       return
@@ -166,7 +219,7 @@ async function syncTaskToGoogleCalendar(task: Task) {
 
     if (task.google_calendar_event_id) {
       await deleteGoogleCalendarEvent(task, assignedUser)
-      await dbUpdateTask(task.id, { google_calendar_event_id: null })
+      await dbUpdateTask(task.id, { google_calendar_event_id: null }, { bumpVersion: false })
       console.warn(`[Calendar] task ${task.id} no longer syncable. Removed linked calendar event.`)
       return
     }
@@ -183,8 +236,7 @@ async function syncTaskToGoogleCalendar(task: Task) {
   }
 }
 
-export async function getBoardData(boardId = DEFAULT_BOARD_ID) {
-  const user    = await requireRole('staff', 'admin', 'super_admin')
+async function loadVisibleColumns(user: SessionUser, boardId: string): Promise<ColumnWithTasks[]> {
   const columns = await getActiveColumns(boardId, false)
   const tasks   = (await getActiveTasks(boardId)).filter(t => t.status !== 'archived')
 
@@ -192,26 +244,48 @@ export async function getBoardData(boardId = DEFAULT_BOARD_ID) {
   const visibleTasks = user.role === 'staff'
     ? tasks.filter((task) => task.submitted_by === user.id || isTaskAssignedToUser(task, user.id))
     : tasks
+  // Internal notes are admin-only — never ship them to staff browsers.
+  const includeInternal = isAdminUser(user)
 
-  const columnsWithTasks: ColumnWithTasks[] = await Promise.all(
+  return Promise.all(
     columns.map(async col => ({
       ...col,
       tasks: await Promise.all(
         visibleTasks
           .filter(t => t.column_id === col.id)
           .sort((a, b) => a.position - b.position)
-          .map(task => hydrateTask(task, user.role !== 'staff'))
+          .map((task) => hydrateTask(task, includeInternal))
       ),
     }))
   )
-  return { columns: columnsWithTasks, currentUser: user }
+}
+
+export async function getBoardData(boardId = DEFAULT_BOARD_ID) {
+  const user    = await requireRole('staff', 'admin', 'super_admin')
+  const columns = await loadVisibleColumns(user, boardId)
+  return { columns, currentUser: user, seq: getLatestBoardEventSeq(boardId) }
+}
+
+/**
+ * Fresh board state for live updates. Called by open boards whenever the
+ * change feed says something happened. Respects the same visibility rules
+ * as the initial page load.
+ */
+export async function getBoardSnapshot(boardId = DEFAULT_BOARD_ID): Promise<BoardSnapshot> {
+  const user = await requireRole('staff', 'admin', 'super_admin')
+  // Read seq first: if a change lands mid-load we'll simply refresh again.
+  const seq = getLatestBoardEventSeq(boardId)
+  const columns = await loadVisibleColumns(user, boardId)
+  const visibleIds = new Set(columns.flatMap((col) => col.tasks.map((task) => task.id)))
+  const presence = getActiveTaskPresence().filter((entry) => visibleIds.has(entry.task_id))
+  return { columns, presence, seq }
 }
 
 export async function createTask(input: CreateTaskInput): Promise<ActionResult<Task>> {
   try {
     const user    = await requireRole('staff', 'admin', 'super_admin')
     validateTaskFields(input as unknown as Record<string, unknown>)
-    const title = normalizedTaskTitle(input.title)
+    input.title = normalizedTaskTitle(input.title)
     const columns = await getActiveColumns(DEFAULT_BOARD_ID, false)
     const inbox   = columns.find(c => c.is_default)
     if (!inbox) throw new Error('Inbox column not found.')
@@ -246,7 +320,7 @@ export async function createTask(input: CreateTaskInput): Promise<ActionResult<T
     const task = await dbCreateTask({
       boardId:      DEFAULT_BOARD_ID,
       columnId:     inbox.id,
-      title,
+      title:        input.title,
       description:  input.description,
       priority:     input.priority ?? 'normal',
       submittedBy:  user.id,
@@ -264,6 +338,8 @@ export async function createTask(input: CreateTaskInput): Promise<ActionResult<T
       action: 'task_created',
       metadata: { title: task.title, priority: task.priority },
     })
+    notifyBoard(task, user.id, 'task_created')
+    safeNotify(() => notifyAssigned(task, assignedIds, user.id))
 
     revalidateBoard()
     revalidatePath(normalizePath('/submit'))
@@ -300,232 +376,235 @@ export async function getSharedTaskData(shareToken: string) {
   }
 }
 
-export async function moveTask(input: MoveTaskInput): Promise<ActionResult> {
+export async function moveTask(input: MoveTaskInput, expected?: TaskExpectation): Promise<ActionResult<Task>> {
   try {
     const user = await requireRole('staff', 'admin', 'super_admin')
     const task = await getTaskById(input.task_id)
-    if (!task) throw new Error('Task not found')
-    const isAdmin = user.role === 'admin' || user.role === 'super_admin'
-    const canMoveTask =
-      isAdmin ||
-      task.submitted_by === user.id ||
-      isTaskAssignedToUser(task, user.id)
-
-    if (!canMoveTask) {
+    if (!task) throw new Error('This card no longer exists — it may have been deleted.')
+    if (!canWorkOnTask(user, task)) {
       throw new Error('You do not have permission to move this task.')
     }
 
     const columns = await getActiveColumns(task.board_id, true)
-    const fromCol = columns.find(c => c.id === task.column_id)
     const toCol   = columns.find(c => c.id === input.new_column_id)
-    if (!toCol) throw new Error('Destination column not found.')
+    if (!toCol) throw new Error('That column no longer exists.')
     if (!Number.isFinite(input.new_position)) throw new Error('Invalid task position.')
     if (toCol.is_archive) {
       throw new Error('Use the archive action to archive tasks.')
     }
 
-    // Derive new status from destination column name
-    const colName = (toCol?.name ?? '').toLowerCase()
-    let newStatus: string = task.status
-    if (toCol?.is_default)                newStatus = 'new'
-    else if (colName === 'pending')       newStatus = 'pending'
-    else if (colName.includes('progress')) newStatus = 'in_progress'
-    else if (colName.includes('complet')) newStatus = 'completed'
-    else if (toCol?.is_archive)           newStatus = 'archived'
+    let before: Task = task
+    const moved = await dbUpdateTask(input.task_id, (current) => {
+      before = current
+      const newStatus = statusForColumn(toCol, current.status)
+      return {
+        column_id: input.new_column_id,
+        position: input.new_position,
+        status: newStatus,
+        completed_at: newStatus === 'completed'
+          ? (current.status === 'completed' ? current.completed_at : new Date().toISOString())
+          : null,
+      }
+    }, {
+      actorId: user.id,
+      guard: expectationGuard(expected, user.id, (cur) => cur.status === 'archived' ? 'it was archived' : null),
+    })
+    if (!moved) throw new Error('This card no longer exists — it may have been deleted.')
 
-    const completedAt = newStatus === 'completed' && task.status !== 'completed'
-      ? new Date().toISOString()
-      : newStatus !== 'completed' ? null : task.completed_at
-
-    await dbMoveTask(input.task_id, input.new_column_id, input.new_position)
-
-    if (newStatus !== task.status) {
-      await dbUpdateTask(input.task_id, { status: newStatus, completed_at: completedAt })
-    }
-
+    const fromCol = columns.find(c => c.id === before.column_id)
     await createActivityLog({
       actor_id: user.id, task_id: task.id,
       entity_type: 'task', entity_id: task.id,
       action: 'task_moved',
       metadata: {
         from_column:    fromCol?.name ?? 'Unknown',
-        to_column:      toCol?.name   ?? 'Unknown',
-        status_changed: newStatus !== task.status ? `${task.status} → ${newStatus}` : null,
+        to_column:      toCol.name,
+        status_changed: moved.status !== before.status ? `${before.status} → ${moved.status}` : null,
       },
     })
 
+    notifyBoard(moved, user.id, 'task_moved')
+    if (moved.status === 'completed' && before.status !== 'completed') {
+      safeNotify(() => notifyCompleted(moved, user.id))
+    }
     revalidateBoard()
-    return { success: true, data: undefined }
+    return { success: true, data: moved }
   } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : 'Unknown error' }
+    return failure(err)
   }
 }
 
-export async function updateTask(input: UpdateTaskInput): Promise<ActionResult<Task>> {
+export async function updateTask(input: UpdateTaskInput, expected?: TaskExpectation): Promise<ActionResult<Task>> {
   try {
     const user = await requireRole('staff', 'admin', 'super_admin')
     const existingTask = await getTaskById(input.id)
-    if (!existingTask) throw new Error('Task not found')
+    if (!existingTask) throw new Error('This card no longer exists — it may have been deleted.')
     validateTaskFields(input as unknown as Record<string, unknown>)
-    if ('status' in input || 'column_id' in input || 'position' in input) {
-      throw new Error('Use the task lifecycle actions to move or change task status.')
-    }
+    if ('status' in input || 'column_id' in input || 'position' in input) throw new Error('Use the task lifecycle actions to move or change task status.')
     const previousRecipientEmails = getRecipientEmailsFromTask(existingTask)
 
-    const isAdmin = user.role === 'admin' || user.role === 'super_admin'
-    const canEditDetails =
-      isAdmin ||
-      existingTask.submitted_by === user.id ||
-      isTaskAssignedToUser(existingTask, user.id)
-
+    const isAdmin = isAdminUser(user)
     const requestedFields = Object.keys(input).filter((key) => key !== 'id')
     if (!isAdmin) {
       const allowedFields = new Set(['title', 'description', 'due_date', 'custom_fields'])
-      if (!canEditDetails || requestedFields.some((key) => !allowedFields.has(key))) {
+      if (!canWorkOnTask(user, existingTask) || requestedFields.some((key) => !allowedFields.has(key))) {
         throw new Error('You do not have permission to edit this task.')
       }
     }
 
-    const updates: Record<string, unknown> = { ...input }
-    delete updates.id
-    let shareEmailRecipients: string[] = []
-
-    if ('custom_fields' in input && typeof input.custom_fields === 'object' && input.custom_fields) {
-      const incoming = { ...(input.custom_fields as Record<string, unknown>) }
-      // Staff edits must preserve server-managed sharing and assignment fields.
-      if (!isAdmin) {
-        for (const key of ['share_token', 'recipient_email', 'recipient_emails',
-          'assigned_user_id', 'assigned_user_ids', 'assigned_user_name', 'assigned_user_names']) {
-          delete incoming[key]
-        }
-      }
-      const nextCustomFields = { ...(existingTask.custom_fields ?? {}), ...incoming }
-
-      updates.custom_fields = nextCustomFields
-    }
-
-    if ('description' in input) {
-      updates.description = input.description?.trim() ? input.description.trim() : null
-    }
-
+    // Validate inputs up front (outside the transaction).
+    let normalizedTitle: string | undefined
     if ('title' in input) {
-      updates.title = normalizedTaskTitle(input.title)
+      normalizedTitle = input.title?.trim() ?? ''
+      if (!normalizedTitle) throw new Error('Title is required.')
+      if (normalizedTitle.length > 500) throw new Error('Title is too long.')
     }
 
-    if ('due_date' in input) {
-      const normalizedDueDate = input.due_date?.trim() || null
-      updates.due_date = normalizedDueDate
-      updates.has_real_due_date = Boolean(normalizedDueDate)
-    }
-
+    let assignedUsers: NonNullable<ReturnType<typeof findUser>>[] | null = null
+    let assignedIds: string[] = []
     if ('assigned_to' in input) {
-      const assignedIds = Array.from(new Set(
+      assignedIds = Array.from(new Set(
         (Array.isArray(input.assigned_to)
           ? input.assigned_to
           : input.assigned_to ? [input.assigned_to] : []
         ).filter((value): value is string => typeof value === 'string' && value.trim().length > 0),
       ))
-      const assignedUsers = assignedIds
+      assignedUsers = assignedIds
         .map((userId) => findUser(userId))
         .filter((profile): profile is NonNullable<typeof profile> => Boolean(profile))
-      const currentCustomFields = {
-        ...(existingTask.custom_fields ?? {}),
-        ...(typeof updates.custom_fields === 'object' && updates.custom_fields ? updates.custom_fields as Record<string, unknown> : {}),
+    }
+
+    let shareEmailRecipients: string[] = []
+
+    // Everything that depends on the current row is computed inside the write
+    // transaction, so concurrent edits to *other* custom fields are preserved.
+    let previousAssigneeIds: string[] = []
+    const task = await dbUpdateTask(input.id, (current) => {
+      previousAssigneeIds = getAssignedUserIds(current)
+      const updates: Record<string, unknown> = {}
+
+      if ('priority' in input) updates.priority = input.priority
+      if ('status' in input) updates.status = input.status
+      if ('column_id' in input) updates.column_id = input.column_id
+      if ('position' in input) updates.position = input.position
+      if ('labels' in input) updates.labels = input.labels
+      if (normalizedTitle !== undefined) updates.title = normalizedTitle
+      if ('description' in input) {
+        updates.description = input.description?.trim() ? input.description.trim() : null
+      }
+      if ('due_date' in input) {
+        const normalizedDueDate = input.due_date?.trim() || null
+        updates.due_date = normalizedDueDate
+        updates.has_real_due_date = Boolean(normalizedDueDate)
       }
 
-      if (assignedUsers.length > 0) {
-        currentCustomFields.assigned_user_name = assignedUsers
-          .map((profile) => profile.full_name ?? profile.display_name ?? 'Assigned user')
-          .join(', ')
-        currentCustomFields.assigned_user_names = assignedUsers
-          .map((profile) => profile.full_name ?? profile.display_name ?? 'Assigned user')
-        currentCustomFields.assigned_user_ids = assignedUsers.map((profile) => profile.id)
+      // Merge custom_fields key-by-key onto the *current* value. A key sent as
+      // null is removed. Non-admins can never change assignment/sharing keys.
+      const nextCustomFields: Record<string, unknown> = { ...(current.custom_fields ?? {}) }
+      let customFieldsTouched = false
+      if ('custom_fields' in input && typeof input.custom_fields === 'object' && input.custom_fields) {
+        for (const [key, value] of Object.entries(input.custom_fields as Record<string, unknown>)) {
+          if (!isAdmin && PROTECTED_CUSTOM_FIELD_KEYS.includes(key)) continue
+          if (value === null || value === undefined) delete nextCustomFields[key]
+          else nextCustomFields[key] = value
+        }
+        customFieldsTouched = true
+      }
 
-        const recipientEmails = assignedUsers
-          .map((profile) => profile.email?.trim().toLowerCase())
-          .filter((email): email is string => Boolean(email))
-        const removedRecipientEmails = previousRecipientEmails.filter((email) => !recipientEmails.includes(email))
-        const addedRecipientEmails = recipientEmails.filter((email) => !previousRecipientEmails.includes(email))
-        const existingShareToken = getShareTokenFromTask(existingTask)
-        const shareToken = removedRecipientEmails.length > 0 || !existingShareToken
-          ? randomUUID()
-          : existingShareToken
+      if (assignedUsers) {
+        customFieldsTouched = true
+        if (assignedUsers.length > 0) {
+          const names = assignedUsers.map((profile) => profile.full_name ?? profile.display_name ?? 'Assigned user')
+          nextCustomFields.assigned_user_name = names.join(', ')
+          nextCustomFields.assigned_user_names = names
+          nextCustomFields.assigned_user_ids = assignedUsers.map((profile) => profile.id)
 
-        if (recipientEmails.length > 0) {
-          currentCustomFields.recipient_email = recipientEmails[0]
-          currentCustomFields.recipient_emails = recipientEmails
-          currentCustomFields.assigned_user_id = assignedUsers[0].id
-          currentCustomFields.share_token = shareToken
-          shareEmailRecipients = removedRecipientEmails.length > 0 ? recipientEmails : addedRecipientEmails
+          const recipientEmails = assignedUsers
+            .map((profile) => profile.email?.trim().toLowerCase())
+            .filter((email): email is string => Boolean(email))
+          const removedRecipientEmails = previousRecipientEmails.filter((email) => !recipientEmails.includes(email))
+          const addedRecipientEmails = recipientEmails.filter((email) => !previousRecipientEmails.includes(email))
+          const existingShareToken = getShareTokenFromTask(current)
+          const shareToken = removedRecipientEmails.length > 0 || !existingShareToken
+            ? randomUUID()
+            : existingShareToken
+
+          if (recipientEmails.length > 0) {
+            nextCustomFields.recipient_email = recipientEmails[0]
+            nextCustomFields.recipient_emails = recipientEmails
+            nextCustomFields.assigned_user_id = assignedUsers[0].id
+            nextCustomFields.share_token = shareToken
+            shareEmailRecipients = removedRecipientEmails.length > 0 ? recipientEmails : addedRecipientEmails
+          } else {
+            for (const key of ['recipient_email', 'recipient_emails', 'assigned_user_id', 'share_token']) delete nextCustomFields[key]
+            shareEmailRecipients = []
+          }
         } else {
-          delete currentCustomFields.recipient_email
-          delete currentCustomFields.recipient_emails
-          delete currentCustomFields.assigned_user_id
-          delete currentCustomFields.share_token
+          for (const key of PROTECTED_CUSTOM_FIELD_KEYS) delete nextCustomFields[key]
           shareEmailRecipients = []
         }
-      } else {
-        delete currentCustomFields.assigned_user_name
-        delete currentCustomFields.assigned_user_names
-        delete currentCustomFields.recipient_email
-        delete currentCustomFields.recipient_emails
-        delete currentCustomFields.assigned_user_id
-        delete currentCustomFields.assigned_user_ids
-        delete currentCustomFields.share_token
-        shareEmailRecipients = []
+        updates.assigned_to = assignedIds[0] ?? null
       }
 
-      updates.custom_fields = currentCustomFields
-      updates.assigned_to = assignedIds[0] ?? null
-    }
+      if (customFieldsTouched) updates.custom_fields = nextCustomFields
 
-    if (input.status === 'completed') {
-      updates.completed_at = new Date().toISOString()
-    } else if (input.status && input.status !== 'archived') {
-      updates.completed_at = null
-    }
-
-    const task = await dbUpdateTask(input.id, updates)
-    if (!task) throw new Error('Task not found')
+      if (input.status === 'completed') {
+        updates.completed_at = new Date().toISOString()
+      } else if (input.status && input.status !== 'archived') {
+        updates.completed_at = null
+      }
+      return updates
+    }, {
+      actorId: user.id,
+      guard: expectationGuard(expected, user.id),
+    })
+    if (!task) throw new Error('This card no longer exists — it may have been deleted.')
 
     await createActivityLog({
       actor_id: user.id, task_id: task.id,
       entity_type: 'task', entity_id: task.id,
       action: 'task_updated',
-      metadata: { fields_changed: Object.keys(input).filter(k => k !== 'id') },
+      metadata: { fields_changed: requestedFields },
     })
+    notifyBoard(task, user.id, 'task_updated')
+    if (assignedUsers) {
+      const added = assignedIds.filter((id) => !previousAssigneeIds.includes(id))
+      safeNotify(() => notifyAssigned(task, added, user.id))
+    }
 
     await syncTaskToGoogleCalendar(task)
-    if (shareEmailRecipients.length > 0) {
-      for (const recipientEmail of shareEmailRecipients) {
-        await sendTaskSharedEmail({ task, recipientEmail, sender: user })
-      }
+    for (const recipientEmail of shareEmailRecipients) {
+      await sendTaskSharedEmail({ task, recipientEmail, sender: user })
     }
     revalidateBoard()
     return { success: true, data: task }
   } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : 'Unknown error' }
+    return failure(err)
   }
 }
 
-export async function completeTask(taskId: string): Promise<ActionResult<Task>> {
+export async function completeTask(taskId: string, expected?: TaskExpectation): Promise<ActionResult<Task>> {
   try {
-    const user    = await requireRole('admin', 'super_admin')
-    const task    = await getTaskById(taskId)
-    if (!task) throw new Error('Task not found')
-    if (task.status === 'archived') throw new Error('Restore this task before completing it.')
-    if (task.status === 'completed') throw new Error('Task is already completed.')
+    const user = await requireRole('staff', 'admin', 'super_admin')
+    const task = await getTaskById(taskId)
+    if (!task) throw new Error('This card no longer exists — it may have been deleted.')
+    if (!canWorkOnTask(user, task)) throw new Error('You do not have permission to complete this task.')
 
-    const columns     = await getActiveColumns(task.board_id, false)
+    const columns      = await getActiveColumns(task.board_id, false)
     const completedCol = columns.find(c => c.name.toLowerCase() === 'completed')
-    const newColumnId  = completedCol?.id ?? task.column_id
 
-    const updated = await dbUpdateTask(taskId, {
+    const updated = await dbUpdateTask(taskId, (current) => ({
       status:       'completed',
-      column_id:    newColumnId,
+      column_id:    completedCol?.id ?? current.column_id,
       completed_at: new Date().toISOString(),
+    }), {
+      actorId: user.id,
+      guard: expectationGuard(expected, user.id, (cur) =>
+        cur.status === 'archived' ? 'it was archived'
+          : cur.status === 'completed' ? 'it is already completed'
+          : null),
     })
-    if (!updated) throw new Error('Task not found')
+    if (!updated) throw new Error('This card no longer exists — it may have been deleted.')
 
     await createActivityLog({
       actor_id: user.id, task_id: taskId,
@@ -533,32 +612,40 @@ export async function completeTask(taskId: string): Promise<ActionResult<Task>> 
       action: 'task_completed',
       metadata: { completed_by: user.full_name ?? user.email },
     })
+    notifyBoard(updated, user.id, 'task_completed')
+    safeNotify(() => notifyCompleted(updated, user.id))
 
     await syncTaskToGoogleCalendar(updated)
     revalidateBoard()
     await sendTaskCompletedEmail(updated, user)
     return { success: true, data: updated }
   } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : 'Unknown error' }
+    return failure(err)
   }
 }
 
-export async function reopenTask(taskId: string): Promise<ActionResult<Task>> {
+export async function reopenTask(taskId: string, expected?: TaskExpectation): Promise<ActionResult<Task>> {
   try {
-    const user   = await requireRole('admin', 'super_admin')
-    const task   = await getTaskById(taskId)
-    if (!task) throw new Error('Task not found')
-    if (task.status !== 'completed') throw new Error('Only completed tasks can be reopened.')
+    const user = await requireRole('staff', 'admin', 'super_admin')
+    const task = await getTaskById(taskId)
+    if (!task) throw new Error('This card no longer exists — it may have been deleted.')
+    if (!canWorkOnTask(user, task)) throw new Error('You do not have permission to reopen this task.')
 
     const columns = await getActiveColumns(task.board_id, false)
     const inbox   = columns.find(c => c.is_default)
 
-    const updated = await dbUpdateTask(taskId, {
+    const updated = await dbUpdateTask(taskId, (current) => ({
       status:       'pending',
-      column_id:    inbox?.id ?? task.column_id,
+      column_id:    inbox?.id ?? current.column_id,
       completed_at: null,
+    }), {
+      actorId: user.id,
+      guard: expectationGuard(expected, user.id, (cur) =>
+        cur.status === 'archived' ? 'it was archived'
+          : cur.status !== 'completed' ? 'it was already reopened'
+          : null),
     })
-    if (!updated) throw new Error('Task not found')
+    if (!updated) throw new Error('This card no longer exists — it may have been deleted.')
 
     await createActivityLog({
       actor_id: user.id, task_id: taskId,
@@ -566,44 +653,44 @@ export async function reopenTask(taskId: string): Promise<ActionResult<Task>> {
       action: 'task_updated',
       metadata: { reopened_by: user.full_name ?? user.email },
     })
+    notifyBoard(updated, user.id, 'task_reopened')
 
     await syncTaskToGoogleCalendar(updated)
     revalidateBoard()
     return { success: true, data: updated }
   } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : 'Unknown error' }
+    return failure(err)
   }
 }
 
-export async function archiveTask(taskId: string): Promise<ActionResult> {
+export async function archiveTask(taskId: string, expected?: TaskExpectation): Promise<ActionResult> {
   try {
-    const user   = await requireRole('admin', 'super_admin')
-    const task   = await getTaskById(taskId)
-    if (!task) throw new Error('Task not found')
-    if (task.status === 'archived') throw new Error('Task is already archived.')
+    const user = await requireRole('admin', 'super_admin')
+    const task = await getTaskById(taskId)
+    if (!task) throw new Error('This card no longer exists — it may have been deleted.')
 
-    const columns   = await getActiveColumns(task.board_id, true)
+    const columns    = await getActiveColumns(task.board_id, true)
     const archiveCol = columns.find(c => c.is_archive)
     if (!archiveCol) throw new Error('Archive column not configured.')
 
-    const updated = await dbUpdateTask(taskId, {
-      status: 'archived',
-      column_id: archiveCol.id,
-      custom_fields: withoutPublicShare(task),
+    const updated = await dbUpdateTask(taskId, (current) => ({ status: 'archived', column_id: archiveCol.id, custom_fields: withoutPublicShare(current) }), {
+      actorId: user.id,
+      guard: expectationGuard(expected, user.id, (cur) => cur.status === 'archived' ? 'it is already archived' : null),
     })
-    if (!updated) throw new Error('Task not found')
+    if (!updated) throw new Error('This card no longer exists — it may have been deleted.')
     await createActivityLog({
       actor_id: user.id, task_id: taskId,
       entity_type: 'task', entity_id: taskId,
       action: 'task_archived', metadata: {},
     })
+    notifyBoard(updated, user.id, 'task_archived')
 
     await syncTaskToGoogleCalendar(updated)
     revalidateBoard()
     revalidatePath(normalizePath('/archive'))
     return { success: true, data: undefined }
   } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : 'Unknown error' }
+    return failure(err)
   }
 }
 
@@ -611,8 +698,7 @@ export async function restoreTask(taskId: string, targetColumnId: string): Promi
   try {
     const user = await requireRole('admin', 'super_admin')
     const task = await getTaskById(taskId)
-    if (!task) throw new Error('Task not found')
-    if (task.status !== 'archived') throw new Error('Only archived tasks can be restored.')
+    if (!task) throw new Error('This card no longer exists — it may have been deleted.')
 
     const columns = await getActiveColumns(task.board_id, false)
     const targetColumn = columns.find((column) => column.id === targetColumnId)
@@ -620,34 +706,47 @@ export async function restoreTask(taskId: string, targetColumnId: string): Promi
       throw new Error('Restore column is invalid.')
     }
 
-    const updated = await dbUpdateTask(taskId, {
-      status: 'new',
-      column_id: targetColumnId,
-      completed_at: null,
-      custom_fields: withoutPublicShare(task),
+    const updated = await dbUpdateTask(taskId, (current) => {
+      const nextCustomFields = { ...(current.custom_fields ?? {}) }
+      for (const key of ['share_token', 'recipient_email', 'recipient_emails', 'assigned_user_id', 'assigned_user_ids', 'assigned_user_names']) {
+        delete nextCustomFields[key]
+      }
+      return { status: 'new', column_id: targetColumnId, completed_at: null, custom_fields: nextCustomFields }
+    }, {
+      actorId: user.id,
+      guard: expectationGuard(undefined, user.id, (cur) => cur.status !== 'archived' ? 'it was already restored' : null),
     })
-    if (!updated) throw new Error('Task not found')
+    if (!updated) throw new Error('This card no longer exists — it may have been deleted.')
     await createActivityLog({
       actor_id: user.id, task_id: taskId,
       entity_type: 'task', entity_id: taskId,
       action: 'task_restored',
       metadata: { restored_to_column: targetColumn.name },
     })
+    notifyBoard(updated, user.id, 'task_restored')
 
     await syncTaskToGoogleCalendar(updated)
     revalidateBoard()
     revalidatePath(normalizePath('/archive'))
     return { success: true, data: undefined }
   } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : 'Unknown error' }
+    return failure(err)
   }
 }
 
-export async function deleteTask(taskId: string): Promise<ActionResult> {
+export async function deleteTask(taskId: string, expected?: TaskExpectation): Promise<ActionResult> {
   try {
     const user = await requireRole('admin', 'super_admin')
     const task = await getTaskById(taskId)
-    if (!task) throw new Error('Task not found')
+    if (!task) throw new Error('This card no longer exists — it may have been deleted.')
+
+    // Delete first (guarded), then clean up the calendar — so a rejected
+    // delete never removes the calendar event.
+    const deleted = await softDeleteTask(taskId, {
+      actorId: user.id,
+      guard: expectationGuard(expected, user.id),
+    })
+    if (!deleted) throw new Error('This card no longer exists — it may have been deleted.')
 
     try {
       const assignedUser = findUser(task.assigned_to)
@@ -665,18 +764,18 @@ export async function deleteTask(taskId: string): Promise<ActionResult> {
       })
     }
 
-    await softDeleteTask(taskId)
     await createActivityLog({
       actor_id: user.id, task_id: taskId,
       entity_type: 'task', entity_id: taskId,
       action: 'task_deleted',
       metadata: { deleted_by: user.email },
     })
+    notifyBoard(task, user.id, 'task_deleted')
 
     revalidateBoard()
     return { success: true, data: undefined }
   } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : 'Unknown error' }
+    return failure(err)
   }
 }
 
@@ -732,6 +831,7 @@ export async function deleteTaskAttachment(attachmentId: string): Promise<Action
     }
 
     await softDeleteAttachment(attachmentId)
+    notifyBoard(task, user.id, 'attachment_deleted')
     try {
       await unlink(attachment.storage_path)
     } catch {

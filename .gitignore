@@ -5,5 +5,13 @@ data
 *.tsbuildinfo
 totemic-inquiry-493511-b8-f8b03d4be4dc.json
 
+# Secrets — never commit any env file except the examples
 .env.*
 !.env.example
+!env.production.example
+*.pem
+*service-account*.json
+
+# User data (attachments live next to the DB, not in the repo)
+public/uploads/*
+!public/uploads/.gitkeep

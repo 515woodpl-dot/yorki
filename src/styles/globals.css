@@ -13,7 +13,7 @@
     --font-mono: 'DM Mono';
 
     /* Light */
-    --background:             40 20% 97%;
+    --background:            214 55% 96%;
     --foreground:            226 37%  9%;
     --card:                    0  0% 100%;
     --card-foreground:       226 37%  9%;
@@ -21,16 +21,16 @@
     --popover-foreground:    226 37%  9%;
     --primary:               222 41% 25%;
     --primary-foreground:      0  0% 100%;
-    --secondary:             218 28% 94%;
+    --secondary:             214 55% 93%;
     --secondary-foreground:  222 33% 34%;
-    --muted:                 220 20% 90%;
+    --muted:                 214 38% 92%;
     --muted-foreground:      222 16% 44%;
-    --accent:                220 20% 90%;
+    --accent:                213 68% 91%;
     --accent-foreground:     226 37%  9%;
     --destructive:             0 72% 51%;
     --destructive-foreground:  0  0% 100%;
-    --border:                220 15% 89%;
-    --input:                 220 16% 82%;
+    --border:                215 34% 87%;
+    --input:                 216 25% 77%;
     --ring:                  210 44% 59%;
     --radius:                0.5rem;
     --brand-primary:         222 41% 25%;
@@ -65,7 +65,19 @@
 @layer base {
   * { @apply border-border; }
   body { @apply bg-background text-foreground font-sans antialiased; font-feature-settings: "rlig" 1, "calt" 1; }
-  html { scroll-behavior: smooth; }
+  html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  /* No 300ms tap delay / double-tap zoom on things you press. */
+  a, button, [role='button'], [role='switch'], summary, select, label { touch-action: manipulation; }
+  /* Take the grey flash off taps; the app has its own pressed/hover styles. */
+  a, button { -webkit-tap-highlight-color: transparent; }
+
+  @media (pointer: coarse) {
+    /* iPhone Safari zooms the whole page in when a text field smaller than 16px gets focus,
+       and doesn't zoom back out. 16px on touch screens avoids it (desktop is unchanged). */
+    input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']):not([type='submit']):not([type='button']),
+    textarea,
+    select { font-size: 16px !important; }
+  }
   :focus-visible { @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background; }
 }
 

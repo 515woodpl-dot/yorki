@@ -7,13 +7,20 @@ const nextConfig = {
   // resolve relative to this path — no manual prefixing needed.
   ...(isProd ? { basePath: '/task' } : {}),
 
+  // ─── Images ─────────────────────────────────────────────────────────
+  // The app doesn't use next/image. Turning the optimizer off removes the
+  // /_next/image endpoint (and its known DoS advisories) — previously it
+  // would fetch and resize images from ANY https host for anyone.
+  images: {
+    unoptimized: true,
+  },
+
   // ─── Security Headers ────────────────────────────────────────────────
   async headers() {
     return [
       {
         source: '/(.*)',
         headers: [
-          ...(isProd ? [{ key: 'Strict-Transport-Security', value: 'max-age=31536000' }] : []),
           { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },

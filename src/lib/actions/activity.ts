@@ -9,9 +9,23 @@ import {
   softDeleteComment,
   createActivityLog,
   getTaskById,
+  recordBoardEvent,
 } from '@/lib/local-data'
 import type { ActionResult, ActivityLogEntry, Comment, CommentWithAuthor } from '@/lib/types'
 import { isTaskAssignedToUser } from '@/lib/utils'
+import { getMentionCandidates, mentionsToPlainText, notifyForComment } from '@/lib/notifications'
+import { sendMentionEmail } from './email'
+
+/**
+ * Re-write mention tokens with the real user's name, and drop (to plain text)
+ * any mention of someone who can't open this card / this internal note.
+ */
+function sanitizeMentions(body: string, allowedNames: Map<string, string>) {
+  return body.replace(/@\[([^\]\n]{1,80})\]\(([A-Za-z0-9-]{1,64})\)/g, (_m, name: string, id: string) => {
+    const realName = allowedNames.get(id)
+    return realName ? `@[${realName.replace(/[\[\]\n]/g, '')}](${id})` : `@${name}`
+  })
+}
 
 function canAccessTask(user: { id: string; role: string }, task: { submitted_by: string; assigned_to: string | null }) {
   return user.role === 'admin'
@@ -52,7 +66,21 @@ export async function addComment(
       return { success: false, error: 'Only admins can post internal notes.' }
     }
 
-    const comment = await dbCreateComment(taskId, user.id, body, isInternal)
+    if (!body.trim()) {
+      return { success: false, error: 'Comment is empty.' }
+    }
+    if (body.length > 10_000) {
+      return { success: false, error: 'Comment is too long.' }
+    }
+
+    const candidates = getMentionCandidates(task, { internalOnly: isInternal })
+    const allowedNames = new Map(candidates.map((candidate) => [
+      candidate.id,
+      candidate.full_name ?? candidate.display_name ?? candidate.email ?? 'User',
+    ]))
+    const cleanBody = sanitizeMentions(body, allowedNames)
+
+    const comment = await dbCreateComment(taskId, user.id, cleanBody, isInternal)
 
     await createActivityLog({
       actor_id: user.id, task_id: taskId,
@@ -60,6 +88,18 @@ export async function addComment(
       action: 'comment_added',
       metadata: { is_internal: isInternal },
     })
+    recordBoardEvent({ boardId: task.board_id, taskId, actorId: user.id, type: 'comment_added' })
+
+    try {
+      const mentioned = notifyForComment({ task, commentId: comment.id, body: cleanBody, actorId: user.id, isInternal })
+      const snippet = mentionsToPlainText(cleanBody)
+      for (const recipient of mentioned) {
+        await sendMentionEmail({ task, recipient, author: user, snippet })
+      }
+    } catch (err) {
+      // Notifications must never block saving a comment.
+      console.error('[Notifications] comment notify failed', err)
+    }
 
     revalidatePath('/dashboard')
     return { success: true, data: comment }
@@ -77,6 +117,7 @@ export async function deleteComment(commentId: string): Promise<ActionResult> {
       entity_type: 'comment', entity_id: commentId,
       action: 'comment_deleted', metadata: {},
     })
+    recordBoardEvent({ taskId: null, actorId: user.id, type: 'comment_deleted' })
 
     revalidatePath('/dashboard')
     return { success: true, data: undefined }

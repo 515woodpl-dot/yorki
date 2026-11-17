@@ -7,6 +7,7 @@ import {
   DndContext,
   CollisionDetection,
   DragEndEvent,
+  DragOverEvent,
   DragStartEvent,
   PointerSensor,
   TouchSensor,
@@ -19,19 +20,26 @@ import {
 import { arrayMove } from '@dnd-kit/sortable'
 import { toast } from 'sonner'
 import { Plus, Search, X, LayoutDashboard, List, CalendarDays, FolderOpen, Clock3, AlertTriangle, CheckCircle2, SlidersHorizontal } from 'lucide-react'
-import { moveTask } from '@/lib/actions/tasks'
+import { getBoardSnapshot, moveTask } from '@/lib/actions/tasks'
 import { cn, isTaskAssignedToUser, getCurrentDateInAppTimeZone, getAssignedUserIds, getUserDisplayName } from '@/lib/utils'
-import type { ColumnWithTasks, TaskWithRelations, SessionUser } from '@/lib/types'
+import { reportActionFailure, useBoardStream } from '@/lib/live/client'
+import type { BoardSnapshot, ColumnWithTasks, TaskExpectation, TaskPresence, TaskWithRelations, SessionUser } from '@/lib/types'
 import { taskDay, taskIsOverdue, taskDueLabel } from '@/lib/board-view'
 import { Avatar } from '@/components/layout/AppNav'
 import BoardColumn from './BoardColumn'
 import TaskCard from './TaskCard'
 import TaskDetailPanel from '../tasks/TaskDetailPanel'
+import QuickAdd, { type QuickAddPerson } from './QuickAdd'
+import { mentionsToPlainText } from '../tasks/MentionTextarea'
 
 interface Props {
   initialColumns: ColumnWithTasks[]
   currentUser:    SessionUser
+  initialSeq?:    number
+  /** People who can be assigned (same list as the New request form). */
+  people?:        QuickAddPerson[]
 }
+
 
 function normalizeSearchValue(value: string) {
   const normalized = typeof value.normalize === 'function' ? value.normalize('NFKD') : value
@@ -78,7 +86,7 @@ function getTaskSearchText(task: TaskWithRelations) {
     assigneeNames,
     task.labels.join(' '),
     stringifyCustomFields(task.custom_fields),
-    task.comments.map((comment) => comment.body).join(' '),
+    task.comments.map((comment) => mentionsToPlainText(comment.body)).join(' '),
     task.attachments.map((attachment) => attachment.file_name).join(' '),
   ].filter(Boolean).join(' '))
 }
@@ -114,7 +122,7 @@ function getTaskSearchScore(task: TaskWithRelations, normalizedQuery: string, to
   return score
 }
 
-export default function KanbanBoard({ initialColumns, currentUser }: Props) {
+export default function KanbanBoard({ initialColumns, currentUser, initialSeq = 0, people = [] }: Props) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [columns,      setColumns]      = useState<ColumnWithTasks[]>(initialColumns)
@@ -130,9 +138,92 @@ export default function KanbanBoard({ initialColumns, currentUser }: Props) {
   const deferredSearchQuery             = useDeferredValue(searchQuery)
   const [isPending,    startTransition] = useTransition()
 
+  const [presence, setPresence] = useState<TaskPresence[]>([])
+
   // columnsRef keeps drag handlers reading current state without stale closures
   const columnsRef = useRef(columns)
   columnsRef.current = columns
+
+  // ─── Live updates ─────────────────────────────────────────────────────────
+  // While the user is dragging or a save is in flight we hold incoming
+  // snapshots, so the board never jumps under their cursor; we refresh as
+  // soon as they're done.
+  const dragOriginRef     = useRef<{ taskId: string; column_id: string; status: TaskWithRelations['status'] } | null>(null)
+  const inFlightRef       = useRef(0)
+  const refreshQueuedRef  = useRef(false)
+  const refreshTimerRef   = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const lastSeqRef        = useRef(initialSeq)
+  const selectedIdRef     = useRef<string | null>(null)
+  selectedIdRef.current   = selectedTask?.id ?? null
+
+  const applySnapshot = useCallback((snapshot: BoardSnapshot) => {
+    if (snapshot.seq < lastSeqRef.current) return // older than what we already show
+    lastSeqRef.current = snapshot.seq
+    setColumns(snapshot.columns)
+    setPresence(snapshot.presence)
+
+    const openId = selectedIdRef.current
+    if (!openId) return
+    const fresh = snapshot.columns.flatMap((col) => col.tasks).find((task) => task.id === openId)
+    if (fresh) {
+      setSelectedTask(fresh)
+    } else {
+      setSelectedTask(null)
+      router.replace('/dashboard', { scroll: false })
+      toast.info('The card you had open was archived, deleted, or reassigned by someone else.', { duration: 7000 })
+    }
+  }, [router])
+
+  const refreshBoard = useCallback(async () => {
+    if (dragOriginRef.current || inFlightRef.current > 0) {
+      refreshQueuedRef.current = true
+      return
+    }
+    refreshQueuedRef.current = false
+    try {
+      const snapshot = await getBoardSnapshot()
+      // A drag or save may have started while we were fetching.
+      if (dragOriginRef.current || inFlightRef.current > 0) {
+        refreshQueuedRef.current = true
+        return
+      }
+      applySnapshot(snapshot)
+    } catch {
+      // Network blip: the stream will trigger another refresh.
+    }
+  }, [applySnapshot])
+
+  const scheduleRefresh = useCallback((delay = 200) => {
+    clearTimeout(refreshTimerRef.current)
+    refreshTimerRef.current = setTimeout(() => { void refreshBoard() }, delay)
+  }, [refreshBoard])
+
+  /** Run a server write; holds live refreshes until it finishes, then resyncs. */
+  const runWrite = useCallback(async <T,>(write: () => Promise<T>): Promise<T> => {
+    inFlightRef.current += 1
+    try {
+      return await write()
+    } finally {
+      inFlightRef.current -= 1
+      if (inFlightRef.current === 0) scheduleRefresh(0)
+    }
+  }, [scheduleRefresh])
+
+  useBoardStream(() => scheduleRefresh())
+
+  useEffect(() => () => clearTimeout(refreshTimerRef.current), [])
+
+  // Other people only; one entry per person per card ("editing" wins over "viewing").
+  const presenceByTask = new Map<string, TaskPresence[]>()
+  const byTaskAndUser = new Map<string, TaskPresence>()
+  for (const entry of presence) {
+    if (entry.user_id === currentUser.id) continue
+    const key = `${entry.task_id}:${entry.user_id}`
+    if (byTaskAndUser.get(key)?.mode !== 'editing') byTaskAndUser.set(key, entry)
+  }
+  for (const entry of Array.from(byTaskAndUser.values())) {
+    presenceByTask.set(entry.task_id, [...(presenceByTask.get(entry.task_id) ?? []), entry])
+  }
 
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super_admin'
 
@@ -158,8 +249,6 @@ export default function KanbanBoard({ initialColumns, currentUser }: Props) {
     mediaQuery.addListener(sync)
     return () => mediaQuery.removeListener(sync)
   }, [])
-
-  useEffect(() => { setColumns(initialColumns) }, [initialColumns])
 
   // ─── Search filter ────────────────────────────────────────────────────────
   const normalizedQuery = normalizeSearchValue(deferredSearchQuery.trim())
@@ -246,11 +335,11 @@ export default function KanbanBoard({ initialColumns, currentUser }: Props) {
     return null
   }
 
-  const canMoveTask = useCallback((task: TaskWithRelations | null) => {
+  function canMoveTask(task: TaskWithRelations | null) {
     if (!task) return false
     if (isAdmin) return true
     return task.submitted_by === currentUser.id || isTaskAssignedToUser(task, currentUser.id)
-  }, [isAdmin, currentUser.id])
+  }
 
   useEffect(() => {
     if (!deepLinkedTaskId) return
@@ -263,15 +352,76 @@ export default function KanbanBoard({ initialColumns, currentUser }: Props) {
   // ─── Drag start ───────────────────────────────────────────────────────────
   function handleDragStart(event: DragStartEvent) {
     const task = findTask(event.active.id as string)
-    if (!canMoveTask(task)) return
+    if (!task || !canMoveTask(task)) return
+    dragOriginRef.current = { taskId: task.id, column_id: task.column_id, status: task.status }
     setActiveTask(task)
+  }
+
+  function handleDragCancel() {
+    dragOriginRef.current = null
+    setActiveTask(null)
+    if (refreshQueuedRef.current) scheduleRefresh(0)
+  }
+
+  // ─── Drag over (live column preview) ─────────────────────────────────────
+  function handleDragOver(event: DragOverEvent) {
+    const { active, over } = event
+    if (!over) return
+
+    const activeTaskId = active.id as string
+    const overId       = over.id   as string
+    const activeTask = findTask(activeTaskId)
+    if (!canMoveTask(activeTask)) return
+
+    const activeColId =
+      (active.data.current?.sortable?.containerId as string | undefined) ??
+      findTaskColumnId(activeTaskId)
+    const overColId =
+      (over.data.current?.sortable?.containerId as string | undefined) ??
+      findColumnId(overId) ??
+      findTaskColumnId(overId)
+
+    // Avoid mutating cross-column state during hover; it causes intermittent
+    // card identity drift on some clients. We commit cross-column moves on drop.
+    if (!activeColId || !overColId || activeColId !== overColId) return
+
+    setColumns(prev => {
+      const activeCol = prev.find(c => c.id === activeColId)
+      const overCol   = prev.find(c => c.id === overColId)
+      if (!activeCol || !overCol) return prev
+
+      const task = activeCol.tasks.find(t => t.id === activeTaskId)
+      if (!task) return prev
+
+      const overTaskIndex = overCol.tasks.findIndex(t => t.id === overId)
+      const insertAt      = overTaskIndex >= 0 ? overTaskIndex : overCol.tasks.length
+
+      return prev.map(col => {
+        if (col.id === activeColId) {
+          return { ...col, tasks: col.tasks.filter(t => t.id !== activeTaskId) }
+        }
+        if (col.id === overColId) {
+          const newTasks = [...col.tasks]
+          newTasks.splice(insertAt, 0, { ...task, column_id: overColId })
+          return { ...col, tasks: newTasks }
+        }
+        return col
+      })
+    })
   }
 
   // ─── Drag end (persist) ───────────────────────────────────────────────────
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event
-    setActiveTask(null)
-    if (!over) return
+    const origin = dragOriginRef.current
+    dragOriginRef.current = null
+    // Apply any updates that arrived mid-drag. If a save starts below, the
+    // refresh waits for it (runWrite) so the card doesn't flicker back.
+    if (refreshQueuedRef.current) scheduleRefresh(300)
+    if (!over) {
+      setActiveTask(null)
+      return
+    }
 
     const activeTaskId = active.id as string
     const overId       = over.id   as string
@@ -344,23 +494,28 @@ export default function KanbanBoard({ initialColumns, currentUser }: Props) {
       : nextTask           ? nextTask.position - 1000
       : 1000
 
+    // Only conflict if someone else moved / completed / archived this card
+    // since the drag started — edits to its text don't block a move.
+    const expected: TaskExpectation | undefined = origin && origin.taskId === activeTaskId
+      ? { column_id: origin.column_id, status: origin.status }
+      : undefined
+
     startTransition(async () => {
-      const result = await moveTask({
+      const result = await runWrite(() => moveTask({
         task_id:       activeTaskId,
         new_column_id: overColId,
         new_position:  newPosition,
-      })
+      }, expected))
       if (!result.success) {
-        toast.error('Failed to save card position.')
-        window.location.reload()
+        reportActionFailure(result, 'Failed to save card position.')
       }
     })
   }
 
   const handleTaskClick = useCallback((task: TaskWithRelations) => {
     setSelectedTask(task)
-    router.replace(dashboardUrl(task.id), { scroll: false })
-  }, [router, dashboardUrl])
+    router.replace(`/dashboard?task=${encodeURIComponent(task.id)}`, { scroll: false })
+  }, [router])
 
   const handleTaskUpdate = useCallback((updatedTask: TaskWithRelations) => {
     setColumns(prev => {
@@ -387,8 +542,8 @@ export default function KanbanBoard({ initialColumns, currentUser }: Props) {
       tasks: col.tasks.filter(t => t.id !== taskId),
     })))
     setSelectedTask(null)
-    router.replace(dashboardUrl(), { scroll: false })
-  }, [router, dashboardUrl])
+    router.replace('/dashboard', { scroll: false })
+  }, [])
 
   const handleTaskMove = useCallback(async (taskId: string, columnId: string) => {
     const currentCols = columnsRef.current
@@ -406,6 +561,7 @@ export default function KanbanBoard({ initialColumns, currentUser }: Props) {
       throw new Error('Use the archive action to archive tasks.')
     }
 
+    const expected: TaskExpectation = { column_id: task.column_id, status: task.status }
     const lastTask = destinationCol.tasks[destinationCol.tasks.length - 1]
     const newPosition = lastTask ? lastTask.position + 1000 : 1000
 
@@ -456,36 +612,38 @@ export default function KanbanBoard({ initialColumns, currentUser }: Props) {
     }
     setSelectedTask(movedTask)
 
-    const result = await moveTask({
+    const result = await runWrite(() => moveTask({
       task_id: taskId,
       new_column_id: columnId,
       new_position: newPosition,
-    })
+    }, expected))
 
     if (!result.success) {
-      toast.error('Failed to move task.')
-      window.location.reload()
-      throw new Error(result.error)
+      reportActionFailure(result, 'Failed to move task.')
+      // Thrown so the panel resets its column picker; the toast already explains.
+      throw Object.assign(new Error(result.error), { reported: true })
     }
-  }, [canMoveTask])
+  }, [runWrite])
 
   return (
     <div className="flex min-w-0 flex-1 flex-col px-4 pt-6 sm:px-7 lg:pt-9">
-      <div className="mb-6 flex items-start justify-between gap-4">
-        <div><p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground lg:hidden">Your workspace</p><h1 className="text-2xl font-bold tracking-tight sm:text-[30px]">{mine ? 'My tasks' : view === 'calendar' ? 'Calendar' : 'Team board'}</h1><p className="mt-1 text-sm text-muted-foreground">{mine ? 'Your work, all in one place.' : view === 'calendar' ? 'A clear look at what’s coming next.' : 'Keep every job moving.'}</p></div>
-        <Link href="/submit" className="flex min-h-11 shrink-0 items-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-sm hover:opacity-90 sm:px-5"><Plus size={18} />New task</Link>
+      <div className="relative mb-6 overflow-hidden rounded-3xl bg-gradient-to-br from-[#203a70] via-[#284b85] to-[#3979a8] px-5 py-6 text-white shadow-lg shadow-[#1f3154]/15 sm:px-8 sm:py-7">
+        <div aria-hidden="true" className="pointer-events-none absolute -right-10 -top-32 h-72 w-72 rounded-full border-[44px] border-white/[0.05]" />
+        <div className="relative flex flex-wrap items-end justify-between gap-5"><div><p className="mb-2 text-[10px] font-bold uppercase tracking-[0.2em] text-[#c7d9ee]">Golden Stone Works / Workspace</p><h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">{mine ? 'My tasks' : view === 'calendar' ? 'Calendar' : 'Team board'}</h1><p className="mt-2 text-sm text-white/75">{mine ? 'Your work, all in one place.' : view === 'calendar' ? 'A clear look at what’s coming next.' : 'Good work starts with a clear plan.'}</p></div>
+        <Link href="/submit" className="flex min-h-11 shrink-0 items-center gap-2 rounded-xl bg-white px-4 text-sm font-semibold text-[#1f3154] shadow-sm transition-colors hover:bg-blue-50 sm:px-5"><Plus size={18} />New task</Link></div>
       </div>
-      <div className="mb-5 grid grid-cols-4 gap-1 rounded-2xl border border-border bg-card p-2 sm:gap-0 sm:p-3">
+      <div className="mb-6 grid grid-cols-2 gap-3 xl:grid-cols-4">
         {[
           { label: 'Open', value: stats.open, icon: FolderOpen, color: 'text-primary', selected: statusFilter === 'open' && dueFilter === 'all', action: () => { setStatusFilter('open'); setDueFilter('all') } },
           { label: 'Due today', value: stats.today, icon: Clock3, color: 'text-blue-600 dark:text-blue-400', selected: dueFilter === 'today', action: () => { setDueFilter('today'); setStatusFilter('all') } },
           { label: 'Overdue', value: stats.overdue, icon: AlertTriangle, color: 'text-amber-700 dark:text-amber-400', selected: dueFilter === 'overdue', action: () => { setDueFilter('overdue'); setStatusFilter('all') } },
           { label: 'Completed this week', value: stats.completed, icon: CheckCircle2, color: 'text-emerald-700 dark:text-emerald-400', selected: statusFilter === 'completed', action: () => { setStatusFilter('completed'); setDueFilter('all') } },
-        ].map(({ label, value, icon: Icon, color, selected, action }) => <button key={label} type="button" onClick={action} aria-pressed={selected} aria-label={`${label}: ${value}`} className={cn('flex min-h-[68px] items-center justify-center gap-3 rounded-xl px-1 text-center transition-colors hover:bg-accent/40 sm:min-h-[76px] sm:justify-start sm:px-4 sm:text-left', selected && 'bg-accent/60')}><Icon size={23} strokeWidth={1.6} className={cn('hidden shrink-0 sm:block', color)} /><span><span className="block text-2xl font-bold tabular-nums leading-8">{value}</span><span className="block text-[9px] leading-4 text-muted-foreground sm:text-xs">{label}</span></span></button>)}
+        ].map(({ label, value, icon: Icon, color, selected, action }, index) => <button key={label} type="button" onClick={action} aria-pressed={selected} aria-label={`${label}: ${value}`} className={cn('group flex min-h-[100px] items-start justify-between rounded-2xl border bg-gradient-to-br p-4 text-left shadow-[0_5px_16px_-8px_rgba(35,67,115,0.25)] transition-all hover:-translate-y-0.5 hover:shadow-[0_10px_22px_-9px_rgba(35,67,115,0.32)] dark:border-border dark:from-slate-800 dark:to-slate-900 sm:min-h-[116px] sm:p-5', index === 0 ? 'border-indigo-200 from-white via-indigo-50 to-indigo-100' : index === 1 ? 'border-blue-200 from-white via-blue-50 to-sky-100' : index === 2 ? 'border-amber-200 from-white via-amber-50 to-amber-100' : 'border-emerald-200 from-white via-emerald-50 to-teal-100', selected && 'ring-2 ring-primary/50')}><span><span className="block text-xs font-medium text-muted-foreground">{label}</span><span className="mt-2 block text-3xl font-semibold tracking-tight tabular-nums">{value}</span></span><span className={cn('rounded-xl bg-white/80 p-2.5 shadow-sm dark:bg-white/10', color)}><Icon size={19} strokeWidth={1.8} /></span></button>)}
       </div>
+      <QuickAdd people={people} currentUserId={currentUser.id} isAdmin={currentUser.role === 'admin' || currentUser.role === 'super_admin'} onCreated={() => { void refreshBoard() }} />
       <div className="mb-5 flex flex-wrap items-center gap-2">
         <div className="relative min-w-[180px] flex-1 sm:max-w-md"><Search size={17} className="absolute left-3 top-3 text-muted-foreground" /><input aria-label="Search tasks" type="search" placeholder="Search tasks, people, or notes" value={searchQuery} onChange={event => setSearchQuery(event.target.value)} className="h-11 w-full rounded-xl border border-border bg-card pl-10 pr-9 text-sm placeholder:text-muted-foreground focus:border-primary" />{searchQuery && <button aria-label="Clear search" onClick={() => setSearchQuery('')} className="absolute right-1 top-1 flex h-9 w-8 items-center justify-center text-muted-foreground"><X size={15} /></button>}</div>
-        <div aria-label="View" className="flex h-11 rounded-xl border border-border bg-card p-1 sm:order-last sm:ml-auto">{[{ key: 'board', label: 'Board', icon: LayoutDashboard }, { key: 'list', label: 'List', icon: List }, { key: 'calendar', label: 'Calendar', icon: CalendarDays }].map(({ key, label, icon: Icon }) => <button key={key} aria-label={`${label} view`} aria-pressed={view === key} onClick={() => changeView(key)} className={cn('flex items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium', view === key ? 'bg-blue-100/70 text-primary dark:bg-primary/15' : 'text-muted-foreground hover:bg-accent/40')}><Icon size={15} /><span className="hidden xl:inline">{label}</span></button>)}</div>
+        <div aria-label="View" className="flex h-11 coarse:h-auto rounded-xl border border-border bg-card p-1 sm:order-last sm:ml-auto">{[{ key: 'board', label: 'Board', icon: LayoutDashboard }, { key: 'list', label: 'List', icon: List }, { key: 'calendar', label: 'Calendar', icon: CalendarDays }].map(({ key, label, icon: Icon }) => <button key={key} aria-label={`${label} view`} aria-pressed={view === key} onClick={() => changeView(key)} className={cn('flex items-center gap-1.5 rounded-lg px-2.5 coarse:h-10 coarse:min-w-11 coarse:justify-center text-xs font-medium', view === key ? 'bg-blue-100/70 text-primary dark:bg-primary/15' : 'text-muted-foreground hover:bg-accent/40')}><Icon size={15} /><span className="hidden xl:inline">{label}</span></button>)}</div>
         <div className="flex w-full flex-wrap gap-2 sm:w-auto">
           <select aria-label="Filter by assignee" value={assigneeFilter} onChange={event => setAssigneeFilter(event.target.value)} className="h-11 min-w-0 flex-1 rounded-xl border border-border bg-card px-2 text-xs text-foreground sm:max-w-[150px]"><option value="all">All assignees</option><option value="unassigned">Unassigned</option>{assigneeOptions.map(user => <option key={user.id} value={user.id}>{getUserDisplayName(user)}</option>)}</select>
           <select aria-label="Filter by priority" value={priorityFilter} onChange={event => setPriorityFilter(event.target.value)} className="h-11 min-w-0 flex-1 rounded-xl border border-border bg-card px-2 text-xs text-foreground sm:max-w-[130px]"><option value="all">All priorities</option>{['urgent', 'high', 'normal', 'low'].map(priority => <option key={priority} value={priority}>{priority[0].toUpperCase() + priority.slice(1)}</option>)}</select>
@@ -493,16 +651,16 @@ export default function KanbanBoard({ initialColumns, currentUser }: Props) {
         </div>
       </div>
       <div className="mb-4 flex min-h-8 flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-        <div className="flex gap-1 sm:hidden">{[{ key: 'all', label: 'All' }, { key: 'today', label: 'Today' }, { key: 'upcoming', label: 'Upcoming' }, { key: 'overdue', label: 'Overdue' }].map(({ key, label }) => <button key={key} onClick={() => { setDueFilter(key); setStatusFilter('all') }} aria-pressed={dueFilter === key} className={cn('min-h-10 rounded-lg px-3 font-medium', dueFilter === key ? 'bg-primary/10 text-primary' : 'hover:bg-accent/40')}>{label}</button>)}</div>
+        <div className="flex gap-1 sm:hidden">{[{ key: 'all', label: 'All' }, { key: 'today', label: 'Today' }, { key: 'upcoming', label: 'Upcoming' }, { key: 'overdue', label: 'Overdue' }].map(({ key, label }) => <button key={key} onClick={() => { setDueFilter(key); setStatusFilter('all') }} aria-pressed={dueFilter === key} className={cn('min-h-10 min-w-11 rounded-lg px-3 font-medium', dueFilter === key ? 'bg-primary/10 text-primary' : 'hover:bg-accent/40')}>{label}</button>)}</div>
         <span aria-live="polite" className="hidden sm:inline">{totalMatches} task{totalMatches === 1 ? '' : 's'}{hasFilters ? ' matching your filters' : ' in this view'}</span>
         {hasFilters && <button onClick={resetFilters} className="flex min-h-9 items-center gap-1.5 rounded-lg px-2 hover:bg-accent/50"><X size={13} />Clear filters</button>}
-        {isAdmin && <Link href="/admin/columns" className="ml-auto hidden min-h-9 items-center gap-1.5 rounded-lg px-2 hover:bg-accent/50 sm:flex"><SlidersHorizontal size={14} />Manage columns</Link>}
+        {isAdmin && <Link href="/admin/columns" className="ml-auto hidden min-h-9 coarse:min-h-11 items-center gap-1.5 rounded-lg px-2 hover:bg-accent/50 sm:flex"><SlidersHorizontal size={14} />Manage columns</Link>}
       </div>
       {totalMatches === 0 ? <div className="my-8 flex min-h-[240px] flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card/50 p-8 text-center"><CheckSquareIcon /><h2 className="mt-4 text-lg font-semibold">{hasFilters ? 'No tasks match these filters' : 'A little breathing room'}</h2><p className="mt-2 max-w-sm text-sm text-muted-foreground">{hasFilters ? 'Try another search or clear your filters to see more work.' : mine ? 'Tasks you create or are assigned to will appear here.' : 'Create a task to get your team’s next job moving.'}</p>{hasFilters ? <button onClick={resetFilters} className="mt-5 min-h-11 rounded-xl bg-primary px-5 text-sm font-medium text-primary-foreground">Clear filters</button> : <Link href="/submit" className="mt-5 min-h-11 rounded-xl bg-primary px-5 py-3 text-sm font-medium text-primary-foreground">Create a task</Link>}</div> : view === 'board' ? <>
         <div className="mb-4 flex gap-2 overflow-x-auto pb-1 sm:hidden">{filteredColumns.map(column => <button key={column.id} onClick={() => setMobileColumnId(column.id)} className={cn('min-h-11 shrink-0 rounded-xl border px-4 text-xs font-semibold', visibleMobileColumnId === column.id ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card')}>{column.name} ({column.tasks.length})</button>)}</div>
-        <div className="min-h-[350px] flex-1 overflow-x-auto pb-5 lg:h-[calc(100dvh-340px)] lg:flex-none board-scroll"><DndContext sensors={isMobile ? [] : sensors} collisionDetection={collisionDetectionStrategy} onDragStart={isMobile ? undefined : handleDragStart} onDragEnd={isMobile ? undefined : handleDragEnd} onDragCancel={() => setActiveTask(null)}>
-          {isMobile ? <div className="flex h-full">{filteredColumns.filter(column => column.id === visibleMobileColumnId).map(column => <BoardColumn key={column.id} column={column} currentUser={currentUser} onTaskClick={handleTaskClick} />)}</div> :
-          <div className="flex h-full min-w-max gap-4 xl:min-w-0">{filteredColumns.map(column => <BoardColumn key={column.id} column={column} currentUser={currentUser} onTaskClick={handleTaskClick} />)}</div>}
+        <div className="min-h-[350px] flex-1 overflow-x-auto pb-5 lg:h-[calc(100dvh-340px)] lg:flex-none board-scroll"><DndContext sensors={isMobile ? [] : sensors} collisionDetection={collisionDetectionStrategy} onDragStart={isMobile ? undefined : handleDragStart} onDragEnd={isMobile ? undefined : handleDragEnd} onDragCancel={handleDragCancel}>
+          {isMobile ? <div className="flex h-full">{filteredColumns.filter(column => column.id === visibleMobileColumnId).map(column => <BoardColumn key={column.id} column={column} currentUser={currentUser} onTaskClick={handleTaskClick} presenceByTask={presenceByTask} />)}</div> :
+          <div className="flex h-full min-w-max gap-4 xl:min-w-0">{filteredColumns.map(column => <BoardColumn key={column.id} column={column} currentUser={currentUser} onTaskClick={handleTaskClick} presenceByTask={presenceByTask} />)}</div>}
           <DragOverlay dropAnimation={{ duration: 150, easing: 'ease-out' }}>{!isMobile && activeTask && <TaskCard task={activeTask} currentUser={currentUser} isDragging />}</DragOverlay>
         </DndContext></div>
       </> : view === 'calendar' ? <div className="space-y-5 pb-6">{Array.from(calendarGroups, ([day, tasks]) => <section key={day || 'undated'} className="rounded-2xl border border-border bg-card p-4 sm:p-5"><h2 className="mb-4 flex items-center gap-2 text-sm font-semibold"><CalendarDays size={17} className="text-primary" />{day ? `${day === today ? 'Today · ' : ''}${new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' }).format(new Date(`${day}T12:00:00Z`))}` : 'No due date'}<span className="ml-auto text-xs font-normal text-muted-foreground">{tasks.length} task{tasks.length === 1 ? '' : 's'}</span></h2><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{tasks.map(task => <TaskCard key={task.id} task={task} currentUser={currentUser} draggable={false} onClick={() => handleTaskClick(task)} />)}</div></section>)}</div> : <>
@@ -510,7 +668,7 @@ export default function KanbanBoard({ initialColumns, currentUser }: Props) {
         <div className="mb-6 hidden overflow-hidden rounded-2xl border border-border bg-card sm:block"><div className="grid grid-cols-[minmax(0,1fr)_130px_150px_100px] gap-4 border-b border-border bg-muted/30 px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"><span>Task</span><span>Assignee</span><span>Due date</span><span>Priority</span></div>{visibleTasks.map(task => <button key={task.id} onClick={() => handleTaskClick(task)} className="grid min-h-[78px] w-full grid-cols-[minmax(0,1fr)_130px_150px_100px] items-center gap-4 border-b border-border/60 px-5 py-4 text-left last:border-0 hover:bg-accent/25"><span className="min-w-0"><span className="block truncate text-sm font-semibold">{task.title}</span><span className="mt-1 block text-xs text-muted-foreground">{task.column.name}</span></span><span className="flex min-w-0 items-center gap-2 text-xs">{task.assigned_to_profile ? <><Avatar user={task.assigned_to_profile} size="sm" /><span className="truncate">{getUserDisplayName(task.assigned_to_profile)}</span></> : 'Unassigned'}</span><span className={cn('text-xs', taskIsOverdue(task, today) ? 'font-medium text-amber-700 dark:text-amber-400' : 'text-muted-foreground')}>{task.status === 'completed' ? 'Completed' : `${taskIsOverdue(task, today) ? 'Overdue · ' : ''}${taskDueLabel(task, today)}`}</span><span className={`priority-${task.priority} w-fit rounded-md px-2 py-1 text-[10px] capitalize`}>{task.priority}</span></button>)}</div>
       </>}
       <footer className="mt-auto flex items-center gap-2 border-t border-border/60 py-4 text-[11px] text-muted-foreground"><CheckCircle2 size={14} className="text-emerald-600" />{isPending ? 'Saving move…' : 'Open a task for details, files, and updates.'}</footer>
-      {selectedTask && <TaskDetailPanel task={selectedTask} currentUser={currentUser} columns={columns.map(({ tasks: _tasks, ...column }) => column)} onClose={() => { setSelectedTask(null); router.replace(dashboardUrl(), { scroll: false }) }} onUpdate={handleTaskUpdate} onRemove={handleTaskRemove} onMove={handleTaskMove} />}
+      {selectedTask && <TaskDetailPanel task={selectedTask} currentUser={currentUser} columns={columns.map(({ tasks: _tasks, ...column }) => column)} onClose={() => { setSelectedTask(null); router.replace(dashboardUrl(), { scroll: false }) }} onUpdate={handleTaskUpdate} onRemove={handleTaskRemove} onMove={handleTaskMove} presence={presenceByTask.get(selectedTask.id) ?? []} runWrite={runWrite} onRefresh={refreshBoard} />}
     </div>
   )
 }

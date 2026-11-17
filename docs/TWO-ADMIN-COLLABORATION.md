@@ -35,9 +35,9 @@ Scope: two equal-power admin browser sessions, Alex and Blair, using one shared 
 
 Until collaboration controls are built, use a regular task comment before or immediately after a meaningful move:
 
-> **MOVE:** Inbox → Pending  
-> **Why:** Waiting for client confirmation of the lobby measurements.  
-> **Next:** Alex will call the client by 2 PM.  
+> **MOVE:** Inbox → Pending<br>
+> **Why:** Waiting for client confirmation of the lobby measurements.<br>
+> **Next:** Alex will call the client by 2 PM.<br>
 > **Owner:** Alex
 
 For a reassignment, completion, reopen, or archive, use the same pattern with `ASSIGN`, `COMPLETE`, `REOPEN`, or `ARCHIVE`. Use internal notes only for admin-confidential details. Before editing a task that may be active, reopen or refresh it. Avoid having two people edit the same details simultaneously.

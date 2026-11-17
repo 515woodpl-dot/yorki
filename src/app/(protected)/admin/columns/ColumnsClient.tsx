@@ -116,14 +116,14 @@ export default function ColumnsClient({ initialColumns, boardId }: Props) {
                   if (e.key === 'Escape') cancelEdit()
                 }}
                 autoFocus
-                className="flex-1 h-8 px-2 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                className="min-w-0 flex-1 h-10 px-2 rounded-lg border border-input fine:h-8 bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
               />
-              <button onClick={() => handleUpdate(col.id)} disabled={isPending}
-                className="w-7 h-7 rounded-lg bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400 flex items-center justify-center hover:opacity-80">
+              <button onClick={() => handleUpdate(col.id)} disabled={isPending} aria-label="Save column name"
+                className="h-10 w-10 fine:h-8 fine:w-8 rounded-lg bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400 flex items-center justify-center hover:opacity-80">
                 {isPending ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
               </button>
-              <button onClick={cancelEdit}
-                className="w-7 h-7 rounded-lg bg-muted text-muted-foreground flex items-center justify-center hover:opacity-80">
+              <button onClick={cancelEdit} aria-label="Cancel editing"
+                className="h-10 w-10 fine:h-8 fine:w-8 rounded-lg bg-muted text-muted-foreground flex items-center justify-center hover:opacity-80">
                 <X size={13} />
               </button>
             </div>
@@ -145,14 +145,16 @@ export default function ColumnsClient({ initialColumns, boardId }: Props) {
                 <div className="flex items-center gap-1">
                   <button
                     onClick={() => startEdit(col)}
-                    className="w-7 h-7 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent flex items-center justify-center transition-colors"
+                    aria-label={`Rename ${col.name}`}
+                    className="h-10 w-10 fine:h-8 fine:w-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent flex items-center justify-center transition-colors"
                   >
                     <Pencil size={13} />
                   </button>
                   <button
                     onClick={() => handleDelete(col.id)}
+                    aria-label={`Delete ${col.name}`}
                     disabled={isPending}
-                    className="w-7 h-7 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 flex items-center justify-center transition-colors disabled:opacity-50"
+                    className="h-10 w-10 fine:h-8 fine:w-8 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 flex items-center justify-center transition-colors disabled:opacity-50"
                   >
                     <Trash2 size={13} />
                   </button>

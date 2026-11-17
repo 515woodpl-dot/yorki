@@ -3,7 +3,7 @@ import { writeFile, mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { getSessionUser } from '@/lib/auth'
-import { createAttachment, createActivityLog, getTaskById } from '@/lib/local-data'
+import { createAttachment, createActivityLog, getTaskById, recordBoardEvent } from '@/lib/local-data'
 import { YORKI_DB_DIR } from '@/lib/db-config'
 import { ALLOWED_FILE_TYPES, MAX_FILE_SIZE, isTaskAssignedToUser } from '@/lib/utils'
 
@@ -67,6 +67,7 @@ export async function POST(request: NextRequest) {
       action: 'attachment_added',
       metadata: { file_name: file.name, file_size: file.size },
     })
+    recordBoardEvent({ taskId, actorId: user.id, type: 'attachment_added' })
 
     return NextResponse.json({ success: true, attachment })
   } catch (err) {

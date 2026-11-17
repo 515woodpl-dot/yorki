@@ -3,25 +3,27 @@
 import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { cn } from '@/lib/utils'
-import type { ColumnWithTasks, TaskWithRelations, SessionUser } from '@/lib/types'
+import type { ColumnWithTasks, TaskWithRelations, SessionUser, TaskPresence } from '@/lib/types'
 import TaskCard from './TaskCard'
 
 interface Props {
   column:      ColumnWithTasks
   currentUser: SessionUser
   onTaskClick: (task: TaskWithRelations) => void
+  /** Other people's presence, keyed by task id. */
+  presenceByTask?: Map<string, TaskPresence[]>
 }
 
-export default function BoardColumn({ column, currentUser, onTaskClick }: Props) {
+export default function BoardColumn({ column, currentUser, onTaskClick, presenceByTask }: Props) {
   const { setNodeRef, isOver } = useDroppable({ id: column.id })
   const taskIds   = column.tasks.map(t => t.id)
   const taskCount = column.tasks.length
 
   return (
-    <div className="w-full sm:w-[290px] xl:flex-1 xl:min-w-[260px] xl:max-w-[360px] shrink-0 flex flex-col max-h-full">
+    <div data-board-column={column.name} className="w-full sm:w-[290px] xl:flex-1 xl:min-w-[260px] xl:max-w-[360px] shrink-0 flex flex-col max-h-full">
 
       {/* Column header */}
-      <div className="flex items-center gap-2.5 mb-3 rounded-xl border border-border/50 bg-muted/40 px-3 py-3">
+      <div className="mb-3 flex items-center gap-2.5 rounded-xl border border-blue-200/70 bg-gradient-to-r from-blue-100/90 to-indigo-50 px-3 py-3 shadow-[0_3px_10px_-7px_rgba(35,67,115,0.3)] dark:border-border dark:from-slate-800 dark:to-slate-900">
         <div
           className="w-2.5 h-2.5 rounded-full shrink-0"
           style={{ backgroundColor: column.color ?? '#6b7280' }}
@@ -58,6 +60,7 @@ export default function BoardColumn({ column, currentUser, onTaskClick }: Props)
                 task={task}
                 currentUser={currentUser}
                 onClick={() => onTaskClick(task)}
+                presence={presenceByTask?.get(task.id)}
               />
             ))}
           </div>

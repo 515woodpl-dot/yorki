@@ -44,7 +44,9 @@ function loadServiceAccountCredentials(): ServiceAccountCredentials | null {
 
   const jsonPath = cleanEnvValue(process.env.GOOGLE_SERVICE_ACCOUNT_JSON_PATH)
   if (jsonPath) {
-    const resolvedPath = path.isAbsolute(jsonPath) ? jsonPath : path.join(process.cwd(), jsonPath)
+    // This path is operator-provided at runtime; credentials must be supplied
+    // separately and must never be bundled into the deployed application.
+    const resolvedPath = path.isAbsolute(jsonPath) ? jsonPath : path.join(/*turbopackIgnore: true*/ process.cwd(), jsonPath)
     const parsed = JSON.parse(fs.readFileSync(resolvedPath, 'utf8')) as ServiceAccountCredentials
     return { ...parsed, private_key: parsed.private_key.replace(/\\n/g, '\n') }
   }
