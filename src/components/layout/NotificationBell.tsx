@@ -1,11 +1,13 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { AtSign, Bell, CheckCircle2, MessageSquare, UserPlus } from 'lucide-react'
 import { getMyNotifications, markMyNotificationsRead } from '@/lib/actions/notifications'
 import { useLiveEvents } from '@/lib/live/client'
+import { readPushStatus, syncAppBadge, type PushStatus } from '@/lib/push/client'
 import { cn, formatRelativeDate } from '@/lib/utils'
 import type { AppNotification, NotificationType } from '@/lib/types'
 
@@ -26,6 +28,7 @@ export default function NotificationBell({ align = 'right' }: { align?: 'left' |
   const [open, setOpen] = useState(false)
   const [items, setItems] = useState<AppNotification[]>([])
   const [unread, setUnread] = useState(0)
+  const [pushStatus, setPushStatus] = useState<PushStatus>('checking')
   const seenIdsRef = useRef<Set<string> | null>(null)
   const loadingRef = useRef(false)
 
@@ -52,6 +55,7 @@ export default function NotificationBell({ align = 'right' }: { align?: 'left' |
       seenIdsRef.current = new Set(data.items.map((item) => item.id))
       setItems(data.items)
       setUnread(data.unread)
+      syncAppBadge(data.unread) // the little number on the app icon
     } catch {
       // Signed out or offline — the next live event will retry.
     } finally {
@@ -90,7 +94,11 @@ export default function NotificationBell({ align = 'right' }: { align?: 'left' |
     <div className="relative">
       <button
         type="button"
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => {
+          const opening = !open
+          setOpen(opening)
+          if (opening) void readPushStatus().then((result) => setPushStatus(result.status)).catch(() => {})
+        }}
         className="relative inline-flex h-11 w-11 lg:h-8 lg:w-8 items-center justify-center rounded-lg sm:rounded-md text-muted-foreground hover:bg-accent/60 hover:text-foreground transition-colors"
         aria-label={unread > 0 ? `Notifications (${unread} unread)` : 'Notifications'}
       >
@@ -150,6 +158,18 @@ export default function NotificationBell({ align = 'right' }: { align?: 'left' |
                 )
               })}
             </div>
+            <Link
+              href="/notifications"
+              onClick={() => setOpen(false)}
+              className="flex min-h-11 items-center justify-between gap-2 border-t border-border px-3.5 text-xs font-medium text-primary hover:bg-accent/50"
+            >
+              <span>
+                {pushStatus === 'off' ? 'Get alerts when Yorki is closed'
+                  : pushStatus === 'needs-install' ? 'Add to Home Screen for phone alerts'
+                  : 'Notification settings'}
+              </span>
+              <span aria-hidden="true">→</span>
+            </Link>
           </div>
         </>
       )}

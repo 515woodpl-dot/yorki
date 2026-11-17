@@ -3,11 +3,12 @@
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useState } from 'react'
-import { LayoutDashboard, Plus, Archive, Settings, LogOut, ChevronDown, CalendarDays, CheckSquare, Users } from 'lucide-react'
+import { LayoutDashboard, Plus, Archive, Settings, LogOut, ChevronDown, CalendarDays, CheckSquare, Users, Bell } from 'lucide-react'
 import { cn, getUserInitials, getUserDisplayName } from '@/lib/utils'
 import type { SessionUser } from '@/lib/types'
 import NotificationBell from './NotificationBell'
 import InstallAppItem from '@/components/pwa/InstallAppItem'
+import { removeThisDevicePush } from '@/lib/push/client'
 
 const APP_BASE_PATH = process.env.NODE_ENV === 'production' ? '/task' : ''
 const mainLinks = [
@@ -28,6 +29,8 @@ export default function AppNav({ user }: { user: SessionUser }) {
   async function handleSignOut() {
     setSigningOut(true)
     try {
+      // Stop alerts on this device first, so the next person to use it never gets yours.
+      await removeThisDevicePush()
       const response = await fetch(`${APP_BASE_PATH}/signout`, { method: 'POST' })
       if (!response.ok) throw new Error('Sign out failed')
       router.push('/login')
@@ -48,6 +51,7 @@ export default function AppNav({ user }: { user: SessionUser }) {
       <div className={cn('absolute z-50 w-60 rounded-2xl border border-border bg-card p-2 shadow-xl', desktop ? 'bottom-full left-0 mb-2' : 'right-0 top-full mt-2')}>
         <p className="truncate px-3 py-2 text-xs text-muted-foreground">{user.email}</p>
         {isAdmin && <><Link href="/admin/users" className={navClass(false)}><Users size={17} />Manage users</Link><Link href="/admin/settings" className={navClass(false)}><Settings size={17} />Settings</Link><Link href="/archive" className={navClass(false)}><Archive size={17} />Archive</Link></>}
+        <Link href="/notifications" className={navClass(false)}><Bell size={17} />Notification settings</Link>
         <InstallAppItem className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-sm font-medium text-muted-foreground hover:bg-accent/60 hover:text-foreground" />
         <button disabled={signingOut} onClick={handleSignOut} className="mt-1 flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-sm text-destructive hover:bg-destructive/10 disabled:opacity-50"><LogOut size={17} />{signingOut ? 'Signing out…' : 'Sign out'}</button>
       </div>

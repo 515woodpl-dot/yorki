@@ -258,6 +258,32 @@ function migrate(db: Database.Database) {
       PRIMARY KEY (key, user_id)
     );
     CREATE INDEX IF NOT EXISTS idx_quick_add_alias_votes_key ON quick_add_alias_votes(key);
+
+    -- Web Push: one row per browser/phone that agreed to receive alerts.
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      id              TEXT PRIMARY KEY,           -- first 16 hex chars of sha256(endpoint)
+      user_id         TEXT NOT NULL,
+      endpoint        TEXT NOT NULL UNIQUE,
+      p256dh          TEXT NOT NULL,
+      auth            TEXT NOT NULL,
+      label           TEXT,
+      created_at      TEXT NOT NULL,
+      last_success_at TEXT,
+      last_error      TEXT,
+      failures        INTEGER NOT NULL DEFAULT 0  -- consecutive; the row is dropped after too many
+    );
+    CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions(user_id);
+
+    -- What each person wants pushed (all on by default).
+    CREATE TABLE IF NOT EXISTS push_prefs (
+      user_id      TEXT PRIMARY KEY,
+      mention      INTEGER NOT NULL DEFAULT 1,
+      comment      INTEGER NOT NULL DEFAULT 1,
+      assigned     INTEGER NOT NULL DEFAULT 1,
+      completed    INTEGER NOT NULL DEFAULT 1,
+      show_preview INTEGER NOT NULL DEFAULT 1,    -- show names / task titles on the lock screen
+      updated_at   TEXT NOT NULL
+    );
   `)
 
   // One-time move: nicknames learned per person (before team-wide memory) become their votes.

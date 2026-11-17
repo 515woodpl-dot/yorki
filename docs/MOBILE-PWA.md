@@ -54,6 +54,7 @@ Installed apps also look for updates hourly and whenever they're reopened.
 | `public/offline.html` | self-contained offline page (English + Spanish) |
 | `public/icons/*`, `src/app/icon.png`, `src/app/apple-icon.png` | app icons — **generated**: `node scripts/generate-pwa-icons.cjs` |
 | `src/components/pwa/` | registration + update bar, install button, offline banner |
+| `src/lib/push/`, `src/app/api/push/`, `src/components/notifications/` | push notifications — see `docs/PUSH.md` |
 | `src/components/theme/ThemeColorSync.tsx` | status-bar colour |
 
 ## Testing
@@ -68,7 +69,6 @@ install it once on each platform and try: install, open, airplane mode, reconnec
 
 ## Not included (yet)
 
-- **Push notifications** (alerts when the app is closed). Needs a push service and per-device
-  subscriptions; today's notifications show in the app's bell and by email.
+- **Reminders** for due cards. (Push notifications *are* included — see `docs/PUSH.md`.)
 - **Offline editing / background sync.**
 - Store-style install **screenshots** (would show real company data).

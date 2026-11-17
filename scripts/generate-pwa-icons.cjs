@@ -11,6 +11,7 @@
  * public/icons/maskable-512.png   "maskable": extra padding so any phone's icon shape can crop it
  * src/app/icon.png                browser tab / bookmark icon (Next adds the <link>)
  * src/app/apple-icon.png          iPhone/iPad home-screen icon (Next adds the <link>)
+ * public/icons/badge-96.png       monochrome status-bar icon for push notifications
  */
 const fs = require('node:fs')
 const path = require('node:path')
@@ -44,6 +45,17 @@ function svg(size, mark) {
 </svg>`
 }
 
+/** Small status-bar icon for push notifications: Android uses only the shape (alpha), so white on transparent. */
+async function writeBadge(file, size) {
+  const s = size * 0.78
+  const o = (size - s) / 2
+  const k = s / 100
+  const svgText = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}"><g transform="translate(${o} ${o}) scale(${k})"><polygon points="${Y}" fill="#fff"/><rect x="68" y="60" width="17" height="17" rx="3" fill="#fff"/></g></svg>`
+  const out = path.join(ROOT, file)
+  await sharp(Buffer.from(svgText)).png({ compressionLevel: 9 }).toFile(out)
+  console.log(`${file}  ${size}×${size}  (${fs.statSync(out).size} bytes, transparent)`)
+}
+
 async function write(file, size, mark) {
   const out = path.join(ROOT, file)
   fs.mkdirSync(path.dirname(out), { recursive: true })
@@ -58,4 +70,5 @@ async function write(file, size, mark) {
   await write('public/icons/maskable-512.png', 512, 0.46)
   await write('src/app/icon.png', 512, 0.56)
   await write('src/app/apple-icon.png', 180, 0.56)
+  await writeBadge('public/icons/badge-96.png', 96)
 })()

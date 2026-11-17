@@ -18,6 +18,7 @@ import { randomUUID } from 'node:crypto'
 import { getDb } from './db'
 import { findUser } from './local-data'
 import { getAssignedUserIds, isTaskAssignedToUser } from './utils'
+import { queuePush } from './push/server'
 import type { AppNotification, NotificationType, Task, UserProfile } from './types'
 
 const MENTION_PATTERN = /@\[([^\]\n]{1,80})\]\(([A-Za-z0-9-]{1,64})\)/g
@@ -82,6 +83,13 @@ function insertNotifications(items: NewNotification[]) {
       insert.run(randomUUID(), item.userId, item.actorId, item.taskId, item.commentId ?? null, item.type, item.snippet ?? null, now)
     }
   })()
+
+  // Also push to people's phones / browsers (fire and forget; never affects this request).
+  try {
+    queuePush(items.map((item) => ({ userId: item.userId, actorId: item.actorId, taskId: item.taskId, type: item.type, snippet: item.snippet ?? null })))
+  } catch (error) {
+    console.error('[Push] could not queue:', error instanceof Error ? error.message : error)
+  }
 
   // Housekeeping: keep notifications for 90 days.
   if (Math.random() < 0.02) {

@@ -17,7 +17,7 @@ const VIEWPORTS = [
 const PAGES = [
   ['/dashboard', 'Board'], ['/dashboard?view=list', 'List'], ['/dashboard?view=calendar', 'Calendar'],
   ['/submit', 'New task'], ['/archive', 'Archive'], ['/admin/users', 'Users'], ['/admin/settings', 'Settings'],
-  ['/admin/columns', 'Columns'], ['/admin/email', 'Email'], ['/admin/activity', 'Activity'],
+  ['/admin/columns', 'Columns'], ['/notifications', 'Notification settings'], ['/admin/email', 'Email'], ['/admin/activity', 'Activity'],
 ]
 
 async function ctxFor(browser, vp, sid) {

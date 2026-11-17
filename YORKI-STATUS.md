@@ -71,6 +71,13 @@ each other:
 - Email for @mentions (Admin → Email → "@mentions", on by default) when
   Resend or SMTP is configured. Other notifications are in-app only.
 
+### Push notifications
+- Alerts on phones and computers even when Yorki is closed: mentions, assignments, comments on your
+  cards, completed cards. Per-device opt-in, per-type switches, optional private lock-screen text,
+  app-icon badge, tap opens the card. iPhone works from the Home Screen app (iOS 16.4+).
+- Nothing to configure (signing key is created automatically); signing out removes that device.
+- Encrypted end to end; the server only posts to the real push services. See `docs/PUSH.md`.
+
 ### Quick add (chat box)
 - Type a sentence on the board (e.g. "I want @Mia to call the supplier by Friday, urgent")
   and get editable cards from it — people, dates, times, priority and labels are picked

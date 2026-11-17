@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { RefreshCw } from 'lucide-react'
 import { startInstallCapture } from './install-store'
 
@@ -12,7 +13,19 @@ const UPDATE_CHECK_MS = 60 * 60 * 1000
  * A new version never replaces the old one mid-use: a small bar asks the person to refresh.
  */
 export function PwaRegistrar() {
+  const router = useRouter()
   const [waiting, setWaiting] = useState<ServiceWorker | null>(null)
+
+  // Tapping a push notification while Yorki is open: the service worker asks us to go to that card.
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data as { type?: string; path?: unknown } | null
+      if (data?.type === 'navigate' && typeof data.path === 'string' && /^\/(?!\/)/.test(data.path)) router.push(data.path)
+    }
+    navigator.serviceWorker.addEventListener('message', onMessage)
+    return () => navigator.serviceWorker.removeEventListener('message', onMessage)
+  }, [router])
 
   useEffect(() => {
     startInstallCapture()

@@ -20,12 +20,14 @@ function load(file, mocks = null) {
   const mod = { exports: {} }
   if (!mocks) cache.set(full, mod)
   const js = ts.transpileModule(fs.readFileSync(full, 'utf8'), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
   }).outputText
   vm.runInNewContext(js, {
     module: mod,
     exports: mod.exports,
     process,
+    // Standard Node/web globals that real modules expect (a bare vm context has none of them).
+    URL, URLSearchParams, Buffer, console, TextEncoder, TextDecoder, setTimeout, clearTimeout, setImmediate, clearImmediate, AbortController,
     require: (name) => {
       if (mocks && name in mocks) return mocks[name]
       if (name.startsWith('./')) return load(resolveTs(path.join(path.dirname(full), name)))
