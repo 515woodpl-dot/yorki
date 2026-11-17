@@ -63,6 +63,8 @@ async function main() {
     await page.getByRole('button', { name: /sign in/i }).click()
     await page.waitForURL('**/task/dashboard')
     await page.getByText('Finalize Yorki board polish', { exact: true }).filter({ visible: true }).waitFor()
+    // The Quick add box pushes the columns down: scroll them into view so the mouse can reach them.
+    await page.getByRole('button', { name: 'Open task: Finalize Yorki board polish', exact: true }).filter({ visible: true }).scrollIntoViewIfNeeded()
     const sourceCard = await page.getByRole('button', { name: 'Open task: Finalize Yorki board polish', exact: true }).filter({ visible: true }).boundingBox()
     const targetCard = await page.getByRole('button', { name: 'Open task: Clarify mobile nav behavior', exact: true }).filter({ visible: true }).boundingBox()
     await page.mouse.move(sourceCard.x + sourceCard.width / 2, sourceCard.y + 30)
