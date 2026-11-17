@@ -76,6 +76,9 @@ each other:
   and get editable cards from it — people, dates, times, priority and labels are picked
   out by plain rules (no AI). Live preview, then Enter to create. See `docs/QUICK-ADD.md`.
 - English and Spanish (and a mix of both); accents optional; Spanish titles use the infinitive.
+- Reads whole briefs (e.g. a long all-caps message to one person) as one card: assignee, deadline
+  ("tienes 2 semanas"), priority ("tu mayor task"), clean title, deliverables as a checklist,
+  original message as the description.
 - Guesses misspelled dates/urgency words and @names, and shows each guess.
 - Learns as a team: nicknames fixed in the preview ("Who is Jimmy?", which "Ana") are shared by
   everyone (`quick_add_alias_votes`, one vote per person, majority wins, real names protected,

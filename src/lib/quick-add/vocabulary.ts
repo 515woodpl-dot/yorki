@@ -42,6 +42,9 @@ export const EN_VERBS = [
   // general
   'do', 'make', 'start', 'finish', 'complete', 'close', 'open', 'handle', 'process', 'add', 'change', 'delete',
   'arrange', 'work', 'wrap up', 'back up', 'deploy',
+  // research, marketing and planning
+  'explore', 'learn', 'improve', 'analyze', 'analyse', 'compare', 'define', 'present', 'show', 'execute', 'study',
+  'investigate', 'audit', 'benchmark', 'survey', 'launch', 'promote', 'grow', 'research', 'brainstorm', 'pitch',
 ]
 
 /** Regular Spanish verbs (infinitive). Their forms are generated below. */
@@ -65,6 +68,9 @@ export const ES_REGULAR_VERBS = [
   'desinstalar', 'fabricar', 'ensamblar', 'medir-irr', 'plantillar', 'reparar', 'arreglar', 'pintar', 'limpiar',
   'lavar', 'barrer', 'trapear', 'inspeccionar', 'fotografiar', 'proteger', 'cubrir', 'fijar', 'ajustar', 'rellenar',
   'demoler', 'desechar', 'retirar', 'colocar', 'diseñar', 'tomar', 'sacar', 'usar', 'probar-irr', 'solucionar',
+  // investigar, mercadeo y planes
+  'explorar', 'aprender', 'mejorar', 'ejecutar', 'analizar', 'estudiar', 'comparar', 'definir', 'establecer', 'lanzar',
+  'promocionar', 'posicionar', 'auditar', 'crecer', 'aumentar', 'identificar', 'documentar',
 ].filter((v) => !v.includes('-'))
 
 /** Irregular / stem-changing Spanish verbs: infinitive → common forms (accents removed). */
@@ -222,6 +228,10 @@ export const PRIORITY_PHRASES: Array<['low' | 'urgent' | 'high' | 'normal', stri
     'es\\s+para\\s+ya', 'sin\\s+falta', 'de\\s+urgencia',
   ]],
   ['high', [
+    // "tu mayor task es el siguiente", "your main task is the following"
+    '(?:tu|su|your|the|la|el|my|mi|our|nuestra)\\s+(?:mayor|principal|main|biggest|most\\s+important|primera|first|big)\\s+(?:task|tarea|prioridad|priority|proyecto|project|trabajo|job|mision|mission|pendiente)(?:\\s+(?:es|is|sera|will\\s+be)(?:\\s+(?:el|la|lo|the))?(?:\\s+(?:siguiente|following))?)?',
+    // Spanish order: "tu tarea principal es la siguiente", "tu prioridad número uno"
+    '(?:tu|su|la|el|mi|nuestra)\\s+(?:task|tarea|prioridad|proyecto|trabajo|mision|pendiente)\\s+(?:principal|mas\\s+importante|prioritaria|numero\\s+uno)(?:\\s+(?:es|sera)(?:\\s+(?:el|la|lo))?(?:\\s+siguiente)?)?',
     'high[- ]priority', 'priority\\s*[:=]?\\s*high', 'high\\s+importance', '(?:very|really|extremely|super)\\s+important',
     "(?:this|it)(?:\\s+is|'s)\\s+important", 'important!+', 'must[- ]do',
     'prioridad\\s+alta', 'alta\\s+prioridad', 'muy\\s+importante', 'es\\s+importante', 'importante!+', 'prioritario',
@@ -244,6 +254,9 @@ export const LEAD_FILLERS: RegExp[] = [
   /^(?:can|could|would|will)\s+(?:you|someone|somebody|anyone)\s+(?:please\s+)?/i,
   /^(?:don'?t\s+forget\s+to|remember\s+to|remind\s+me\s+to|reminder\s+to|make\s+sure\s+(?:to|that)?|be\s+sure\s+to|need\s+to|needs\s+to|has\s+to|have\s+to|got\s+to|gotta|time\s+to)\s*/i,
   /^(?:to-?do|todo|task|action|reminder|note|pendiente|tarea|recordatorio|nota)\s*[:\-–]\s*/i,
+  // Briefs: "your task is the following:", "tienes que…", "you need to…"
+  /^(?:tu|su|your)\s+(?:task|tarea|trabajo|job|mision|mission|assignment|asignacion)\s+(?:es|is)\s+(?:(?:el|la|lo|the)\s+)?(?:siguiente|following)?\s*[:,]?\s*/i,
+  /^(?:tienes\s+que|tienen\s+que|debes|necesitas|you\s+need\s+to|you\s+have\s+to|you\s+must|you\s+should|you(?:'ll|\s+will)\s+need\s+to)\s+/i,
   // Spanish
   /^(?:hay\s+que|tenemos\s+que|tengo\s+que|debemos|debo|necesitamos|necesito|queremos|quiero|quisiera|me\s+gustaria|vamos\s+a|voy\s+a|hay\s+que\s+ir\s+a)\s+/i,
   /^(?:no\s+(?:te\s+)?olvides\s+(?:de\s+)?|no\s+olvidar\s+(?:de\s+)?|acuerdate\s+de\s+|recuerda\s+|recordar\s+|recuerdame\s+(?:que\s+)?|asegurate\s+de\s+)/i,
@@ -300,7 +313,9 @@ export const MISSPELLINGS: Record<string, string> = {
   fridy: 'friday', frday: 'friday', mondy: 'monday', monady: 'monday', urgnet: 'urgent', urjent: 'urgent',
   ugent: 'urgent', urgant: 'urgent', priorty: 'priority', prority: 'priority', piority: 'priority',
   importnat: 'important', untill: 'until', til: 'until', b4: 'before', nxt: 'next', wk: 'week', mnth: 'month',
-  asaap: 'asap', assap: 'asap', plz: 'please', pls: 'please',
+  asaap: 'asap', assap: 'asap', plz: 'please', pls: 'please', resarch: 'research', reserch: 'research',
+  elsiguiente: 'el siguiente', elmsiguiente: 'el siguiente', losiguiente: 'lo siguiente', nyestr: 'nuestra',
+  nyestra: 'nuestra', nuestar: 'nuestra', jn: 'un',
   // Spanish
   mñana: 'mañana', manan: 'mañana', viernez: 'viernes', vierens: 'viernes', juebes: 'jueves', lunez: 'lunes',
   sabdo: 'sábado', urjente: 'urgente', urgnte: 'urgente', prioridda: 'prioridad', semna: 'semana', smana: 'semana',
@@ -396,6 +411,16 @@ export const CONCEPTS: Record<string, [string[], string[]]> = {
   email: [['email', 'mail'], ['correo']],
   meeting: [['meeting', 'meet', 'appointment'], ['reunion', 'cita']],
   schedule: [['schedule', 'reschedule', 'book'], ['programar', 'agendar', 'reprogramar', 'reservar']],
+  // marketing and growth
+  social: [['social', 'instagram', 'facebook', 'tiktok', 'post', 'reel', 'reels', 'story', 'stories'], ['redes', 'publicacion', 'publicar', 'historia', 'historias']],
+  research: [['research', 'investigate', 'study', 'analysis', 'analyze'], ['investigacion', 'investigar', 'estudio', 'analisis', 'analizar']],
+  brand: [['brand', 'branding', 'marketing', 'advertising', 'ads'], ['marca', 'mercadeo', 'publicidad', 'anuncios']],
+  market: [['market', 'marketplace'], ['mercado']],
+  competitor: [['competitor', 'competition', 'competing'], ['competencia', 'competidor', 'competidores']],
+  plan: [['plan', 'strategy', 'roadmap'], ['estrategia', 'planificar', 'planear']],
+  review: [['review', 'rating', 'testimonial'], ['resena', 'calificacion', 'testimonio', 'opinion']],
+  photo: [['photo', 'picture', 'video', 'shoot'], ['foto', 'fotografia', 'imagen', 'grabar']],
+  website: [['website', 'web', 'site', 'seo', 'google'], ['pagina', 'sitio']],
 }
 
 /** Word (accent-free, lowercase) → concept. */
@@ -411,4 +436,61 @@ export const CONCEPT_OF: Map<string, string> = (() => {
 export function conceptLabel(concept: string): string {
   const entry = CONCEPTS[concept]
   return entry ? `${entry[0][0]} / ${entry[1][0]}` : concept
+}
+
+// ─── 10 · Proper names (kept capitalised when a message is in ALL CAPS) ───────
+
+/** Places the team talks about. Also stop a stray period from splitting "Washington. Oregon and California". */
+export const PLACES = [
+  // US states
+  'Alabama', 'Alaska', 'Arizona', 'Arkansas', 'California', 'Colorado', 'Connecticut', 'Delaware', 'Florida', 'Georgia',
+  'Hawaii', 'Idaho', 'Illinois', 'Indiana', 'Iowa', 'Kansas', 'Kentucky', 'Louisiana', 'Maine', 'Maryland',
+  'Massachusetts', 'Michigan', 'Minnesota', 'Mississippi', 'Missouri', 'Montana', 'Nebraska', 'Nevada',
+  'New Hampshire', 'New Jersey', 'New Mexico', 'New York', 'North Carolina', 'North Dakota', 'Ohio', 'Oklahoma',
+  'Oregon', 'Pennsylvania', 'Rhode Island', 'South Carolina', 'South Dakota', 'Tennessee', 'Texas', 'Utah',
+  'Vermont', 'Virginia', 'Washington State', 'Washington', 'West Virginia', 'Wisconsin', 'Wyoming',
+  // Pacific Northwest and West Coast
+  'Pacific Northwest', 'Seattle', 'Bellevue', 'Tacoma', 'Redmond', 'Kirkland', 'Everett', 'Renton', 'Kent', 'Bothell',
+  'Issaquah', 'Sammamish', 'Lynnwood', 'Olympia', 'Spokane', 'Puyallup', 'Federal Way', 'Shoreline', 'Woodinville',
+  'Mercer Island', 'Snohomish', 'Vancouver', 'Portland', 'Salem', 'Eugene', 'Beaverton', 'Hillsboro', 'Bend',
+  'Los Angeles', 'San Francisco', 'San Diego', 'San Jose', 'Sacramento', 'Oakland', 'Bay Area', 'Orange County',
+  'Boise', 'Canada', 'Mexico', 'USA',
+]
+
+/** Brands, platforms and acronyms, with their usual spelling. */
+export const PROPER_WORDS = [
+  'Instagram', 'Facebook', 'TikTok', 'YouTube', 'LinkedIn', 'Pinterest', 'Houzz', 'Yelp', 'Google', 'Nextdoor',
+  'WhatsApp', 'Angi', 'HomeAdvisor', 'Thumbtack', 'Canva', 'Shopify', 'WordPress', 'Wix', 'Squarespace', 'Excel',
+  'Caesarstone', 'Silestone', 'Cambria', 'MSI', 'Dekton', 'Corian',
+  'SEO', 'SEM', 'CRM', 'ROI', 'KPI', 'KPIs', 'LLC', 'PDF', 'CEO', 'HOA', 'ADU', 'CNC', 'CAD', 'QR', 'PNW', 'USA',
+]
+
+/**
+ * Ordinary words typo-fixing may correct towards (besides verbs and concept words).
+ * Accent-free, lowercase, 5+ letters. Typo-fixing is strict: same first letter, one
+ * neighbouring-key slip for 5-letter words, plurals and real names never touched.
+ */
+export const COMMON_WORDS = [
+  'research', 'social', 'media', 'marketing', 'market', 'mercado', 'marca', 'brand', 'branding', 'company', 'compania',
+  'empresa', 'business', 'negocio', 'cliente', 'customer', 'project', 'proyecto', 'website', 'pagina', 'campaign',
+  'campana', 'ciudad', 'nuestra', 'nuestro', 'report', 'reporte', 'informe', 'presentation', 'presentacion',
+  'proposal', 'propuesta', 'strategy', 'estrategia', 'competition', 'competencia', 'competitor', 'competidor',
+  'analysis', 'analisis', 'content', 'contenido', 'publicacion', 'sales', 'ventas', 'price', 'precio', 'pricing',
+  'countertop', 'fabricante', 'manufacturer', 'principal', 'important', 'importante', 'establish', 'quality', 'calidad',
+  'service', 'servicio', 'kitchen', 'cocina', 'quartz', 'granite', 'marble', 'cuarzo', 'granito', 'showroom',
+  'photos', 'fotos', 'video', 'videos', 'review', 'reviews', 'resena', 'followers', 'seguidores', 'audience',
+  'audiencia', 'budget', 'presupuesto', 'schedule', 'calendar', 'calendario', 'week', 'semana', 'month', 'semanas',
+]
+
+/** Ordinary words typo-fixing corrects towards: common words, concept words, verbs (5+ letters, accent-free). */
+export function generalTypoTargets(): string[] {
+  const fold = (w: string) => w.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  const words = new Set<string>()
+  const add = (w: string) => { const f = fold(w); if (f.length >= 5 && /^[a-z]+$/.test(f)) words.add(f) }
+  COMMON_WORDS.forEach(add)
+  Object.values(CONCEPTS).forEach(([en, es]) => [...en, ...es].forEach(add))
+  EN_VERBS.forEach(add)
+  ES_REGULAR_VERBS.forEach(add)
+  Object.keys(ES_IRREGULAR_VERBS).forEach(add)
+  return Array.from(words).sort()
 }

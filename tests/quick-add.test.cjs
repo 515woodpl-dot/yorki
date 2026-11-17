@@ -260,7 +260,8 @@ test('follow-ups attach to the previous card; new tasks do not', () => {
   assert.equal(parse('Pay the bill. It is urgent')[0].priority, 'urgent')
   assert.equal(parse('Pay the bill. Due Friday')[0].dueDate, '2026-11-20')
   assert.equal(parse('Pay the bill. Due to the rain, call the roofer').length, 2)
-  assert.equal(parse('Pay the bill. This invoice is from last month').length, 2) // no detail → new card
+  assert.equal(parse('Pay the bill. This invoice is from last month').length, 1) // explains the same task
+  assert.equal(parse('Pay the bill.\nThis invoice is from last month').length, 2) // a new line is a new card
 })
 
 test('abbreviations do not break sentences', () => {

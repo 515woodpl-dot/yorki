@@ -59,6 +59,66 @@ export function closestWord(word: string, candidates: readonly string[], minLeng
   return best && !tie ? best : null
 }
 
+// ─── Ordinary words (stricter) ───────────────────────────────────────────────
+
+const KEYBOARD = ['qwertyuiop', 'asdfghjkl', 'zxcvbnm']
+const KEY_POS = new Map<string, [number, number]>()
+KEYBOARD.forEach((row, r) => Array.from(row).forEach((ch, c) => KEY_POS.set(ch, [r, c + r * 0.5])))
+KEY_POS.set('ñ', [1, 9.5])
+
+/** Keys next to each other on a QWERTY keyboard ("j" and "i", "s" and "a"). */
+export function keyboardNeighbours(a: string, b: string): boolean {
+  const pa = KEY_POS.get(a)
+  const pb = KEY_POS.get(b)
+  if (!pa || !pb || a === b) return false
+  return Math.abs(pa[0] - pb[0]) <= 1 && Math.abs(pa[1] - pb[1]) <= 1
+}
+
+/** One neighbouring-key slip or two swapped letters ("medja" → "media", "reserach" → "research"). */
+function isFingerSlip(a: string, b: string): boolean {
+  if (a.length !== b.length) return false
+  const diff: number[] = []
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) diff.push(i)
+  if (diff.length === 1) return keyboardNeighbours(a[diff[0]], b[diff[0]])
+  return diff.length === 2 && diff[1] === diff[0] + 1 && a[diff[0]] === b[diff[1]] && a[diff[1]] === b[diff[0]]
+}
+
+const isPluralOf = (word: string, base: string) => word === `${base}s` || word === `${base}es` || base === `${word}s` || base === `${word}es`
+
+/**
+ * Closest ordinary word for a likely typo. Stricter than closestWord:
+ *  - 5-letter words: only a neighbouring-key slip or swapped letters;
+ *  - 6–7 letters: one edit; 8+: two edits;
+ *  - never a plural/singular of the target ("marcas" stays "marcas").
+ */
+export function closestGeneral(word: string, targets: readonly string[]): { word: string; distance: number } | null {
+  const w = fold(word)
+  if (w.length < 5) return null
+  const max = allowedEdits(w.length)
+  let best: { word: string; distance: number } | null = null
+  let tie = false
+  for (const target of targets) {
+    const t = fold(target)
+    if (t === w) return null
+    if (t[0] !== w[0] || Math.abs(t.length - w.length) > max || isPluralOf(w, t)) continue
+    const distance = editDistance(w, t, max)
+    if (distance > max) continue
+    if (w.length === 5 && !isFingerSlip(w, t)) continue
+    if (!best || distance < best.distance) { best = { word: target, distance }; tie = false }
+    else if (distance === best.distance && fold(best.word) !== t) tie = true
+  }
+  return best && !tie ? best : null
+}
+
+export interface GeneralTypoOptions {
+  /** Ordinary words to correct towards. */
+  targets: readonly string[]
+  /** Real words that are one slip away from a target and must be left alone ("marker" ≠ "market"). */
+  realWords: ReadonlySet<string>
+  /** Other words known to be real (e.g. Spanish verb + pronoun: "ejecútalo", "mostrarnos"). */
+  isKnown?: (folded: string) => boolean
+}
+
 export interface Correction { from: string; to: string }
 
 function matchCase(original: string, replacement: string) {
@@ -71,7 +131,7 @@ function matchCase(original: string, replacement: string) {
  * Fix misspelled control words. `protect` holds words that must never change
  * (people's names, known verbs…), already folded (lowercase, no accents).
  */
-export function correctTypos(text: string, protect: Set<string>): { text: string; corrections: Correction[] } {
+export function correctTypos(text: string, protect: Set<string>, general?: GeneralTypoOptions): { text: string; corrections: Correction[] } {
   const corrections: Correction[] = []
   const out = text.replace(/[\p{L}\p{N}][\p{L}\p{N}']*/gu, (token, offset: number, whole: string) => {
     const before = whole[offset - 1] ?? ''
@@ -91,6 +151,7 @@ export function correctTypos(text: string, protect: Set<string>): { text: string
     // Possessives and contractions ("Friday's", "today's", "it's") are real words, never typos.
     if (/\d/.test(token) || token.includes("'") || GUESSABLE_WORDS.includes(key)) return token
     const guess = closestWord(token, GUESSABLE_WORDS)
+      ?? (general && !general.realWords.has(key) && !general.isKnown?.(key) ? closestGeneral(token, general.targets) : null)
     if (!guess || guess.distance === 0) return token
     const replacement = matchCase(token, guess.word)
     corrections.push({ from: token, to: replacement })

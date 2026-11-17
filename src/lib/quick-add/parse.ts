@@ -32,8 +32,9 @@
 import {
   EN_VERBS, ES_CLITICS, ES_FORM_TO_INFINITIVE, ES_FORMS_NOT_FOR_SPLITTING, ES_OBJECT_STARTERS, FOLLOW_UP_STARTERS,
   INTRO_WORDS, LEAD_FILLERS, MONTHS, NOT_NAMES, NUMBER_WORDS, PARTS_OF_DAY, PRIORITY_PHRASES, STOP_WORDS,
-  TRAILING_WORDS, WEAK_FOLLOW_UP_STARTERS, WEEKDAYS, conceptLabel,
+  TRAILING_WORDS, WEAK_FOLLOW_UP_STARTERS, WEEKDAYS, conceptLabel, PLACES, PROPER_WORDS, generalTypoTargets,
 } from './vocabulary'
+import { REAL_WORD_NEIGHBOURS } from './real-words'
 import { closestWord, correctTypos } from './fuzzy'
 import {
   CONCEPT_PREFIX, suggestFromHistory, type DateAlternative, type HistoryModel, type QuickAddMemory, type RefNote,
@@ -93,6 +94,8 @@ export interface ParsedCard {
   dateAlternative: DateAlternative | null
   /** One-click suggestions learned from past cards. Never applied automatically. */
   suggestions: QuickSuggestion[]
+  /** Deliverables spelled out in the message ("la idea es que explore… y aprenda…"). */
+  checklist: string[]
 }
 
 const MAX_CARDS = 20
@@ -182,6 +185,8 @@ const toNumber = (word: string) => NUMBER_WORDS[lowerFold(word)] ?? parseInt(wor
 const ES_FORMS = Array.from(ES_FORM_TO_INFINITIVE.keys())
 /** Any verb (EN or ES form), for "Ana review…" and list splitting. */
 const VERB = `(?:${alternation([...EN_VERBS, ...ES_FORMS])})`
+/** A verb that may carry Spanish object pronouns: "mostrarnos", "ejecútalo", "envíale". */
+const VERB_CLITIC = `${VERB}(?:${alternation(ES_CLITICS)})?`
 const SPLIT_VERB = `(?:${alternation([...EN_VERBS, ...ES_FORMS.filter((f) => f.length > 2 && !ES_FORMS_NOT_FOR_SPLITTING.has(f))])})`
 
 const KNOWN_WORDS = new Set<string>([
@@ -249,6 +254,10 @@ const RE = {
   manana: /(?<!\b(?:la|de|esta|por|en)\s{1,3})\bmanana\b/gi,
   inUnits: new RegExp(`\\b(?:in|within|en|dentro\\s+de|de\\s+aqui\\s+a)\\s+${NUM}\\s+(?:of\\s+)?(days?|weeks?|months?|dias?|semanas?|mes|meses)\\b`, 'gi'),
   fromNow: new RegExp(`\\b${NUM}\\s+(days?|weeks?|months?)\\s+from\\s+(?:now|today)\\b`, 'gi'),
+  // "tienes 2 semanas", "you have 3 days", "tiene un mes"
+  haveTime: new RegExp(`\\b(?:tienes|tiene|tienen|tenemos|tengo|you\\s+have|you've\\s+got|you\\s+got|we\\s+have|i\\s+have|they\\s+have|she\\s+has|he\\s+has)\\s+(?:hasta\\s+)?${NUM}\\s+(days?|weeks?|months?|dias?|semanas?|mes|meses)\\b`, 'gi'),
+  // "con un plazo de 10 días", "with a deadline of 2 weeks"
+  deadlineOf: new RegExp(`\\b(?:(?:con\\s+)?(?:un\\s+)?plazo\\s+de|(?:with\\s+)?(?:a\\s+)?deadline\\s+of)\\s+${NUM}\\s+(days?|weeks?|months?|dias?|semanas?|mes|meses)\\b`, 'gi'),
   weekday: new RegExp(`\\b(?:(this|next|coming|upcoming|este\\s+proximo|este|esta|proximo|proxima)\\s+)?(${WEEKDAY})\\b(?!'s)(?:\\s+(que\\s+viene|proximo|de\\s+la\\s+(?:proxima\\s+semana|semana\\s+que\\s+viene)|(?:of\\s+)?next\\s+week))?`, 'gi'),
   period: /\b(next\s+week|this\s+week|next\s+month|end\s+of\s+(?:the\s+)?(?:week|month|year|day)|eow|eom|eoy|eod|cob|close\s+of\s+business|(?:this\s+)?weekend|(?:la\s+)?proxima\s+semana|(?:la\s+)?semana\s+que\s+viene|esta\s+semana|(?:este\s+)?fin\s+de\s+semana|(?:a\s+|al\s+)?fin(?:al)?\s+de(?:l)?\s+mes|(?:el\s+)?(?:proximo\s+mes|mes\s+que\s+viene)|(?:a\s+|al\s+)?fin(?:al)?\s+de(?:l)?\s+ano|(?:al\s+)?fin(?:al)?\s+del\s+dia)\b(?!'s)/gi,
   dayOfMonthEn: /\b(?:by|on|until|till|before|due)\s+(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)\b/gi,
@@ -295,6 +304,8 @@ function findDateHits(text: string, today: Date, prefs: DatePrefs): DateHit[] {
   for (const h of findAll(text, RE.manana)) add(h, addDays(today, 1))
   for (const h of findAll(text, RE.inUnits)) add(h, relative(today, toNumber(h.groups[1]!), h.groups[2]!))
   for (const h of findAll(text, RE.fromNow)) add(h, relative(today, toNumber(h.groups[1]!), h.groups[2]!))
+  for (const h of findAll(text, RE.haveTime)) add(h, relative(today, toNumber(h.groups[1]!), h.groups[2]!))
+  for (const h of findAll(text, RE.deadlineOf)) add(h, relative(today, toNumber(h.groups[1]!), h.groups[2]!))
 
   for (const h of findAll(text, RE.weekday)) {
     const before = lowerFold(h.groups[1] ?? '').replace(/\s+/g, ' ')
@@ -457,9 +468,13 @@ const ABBREVIATIONS = new Set([
 ])
 const BULLET_RE = /^\s*(?:[-*•–—]|\d+[.)])\s+/
 
-interface Sentence { text: string; bullet: boolean }
+interface Sentence { text: string; bullet: boolean; line: number }
 
-function splitSentences(line: string): string[] {
+// "…in Washington State. Oregon and California…": a period typed instead of a comma
+// before a list of places doesn't end the sentence.
+const PLACE_LIST_START = new RegExp(`^(?:${alternation(PLACES)})\\b\\s*(?:,|&|\\b(?:y|and|o|or|e)\\b)`, 'i')
+
+function splitSentences(line: string, fixPlaceListPeriods = true): string[] {
   const parts: string[] = []
   let last = 0
   for (const m of Array.from(line.matchAll(/([.!?]+|;)(\s+|$)/g))) {
@@ -467,6 +482,10 @@ function splitSentences(line: string): string[] {
     if (m[1] === '.') {
       const token = lowerFold(line.slice(0, index).match(/(\S+)$/)?.[1] ?? '')
       if (ABBREVIATIONS.has(token)) continue
+      if (PLACE_LIST_START.test(foldSame(line.slice(index + m[0].length)))) {
+        if (fixPlaceListPeriods) line = `${line.slice(0, index)},${line.slice(index + 1)}`
+        continue
+      }
     }
     const end = index + (m[1] === ';' ? 0 : m[1].length)
     parts.push(line.slice(last, end))
@@ -476,15 +495,16 @@ function splitSentences(line: string): string[] {
   return parts.map((p) => p.trim().replace(/^[¿¡]+/, '')).filter((p) => /[\p{L}\p{N}]/u.test(p))
 }
 
-function toSentences(text: string): Sentence[] {
+/** Split into sentences. `asWritten` keeps the person's punctuation untouched (for descriptions). */
+function toSentences(text: string, asWritten = false): Sentence[] {
   const out: Sentence[] = []
-  for (const rawLine of text.split('\n')) {
+  text.split('\n').forEach((rawLine, lineNo) => {
     let line = rawLine.trim()
-    if (!line) continue
+    if (!line) return
     const bullet = BULLET_RE.exec(line)
     if (bullet) line = line.slice(bullet[0].length)
-    splitSentences(line).forEach((sentence, i) => out.push({ text: sentence, bullet: Boolean(bullet) && i === 0 }))
-  }
+    splitSentences(line, !asWritten).forEach((sentence, i) => out.push({ text: sentence, bullet: Boolean(bullet) && i === 0, line: lineNo }))
+  })
   return out
 }
 
@@ -893,29 +913,47 @@ export function parseQuickAdd(input: string, options: QuickAddOptions): ParsedCa
     memory: options.memory ?? null,
   }
 
-  let text = (input ?? '').normalize('NFC').replace(/\r\n?/g, '\n').replace(/[“”«»]/g, '"').replace(/[‘’´]/g, "'")
-  // Guess misspelled control words, never names or known words.
-  const protect = new Set<string>([...KNOWN_WORDS, ...index.keys.flatMap((k) => k.split(' '))])
-  const typo = correctTypos(text, protect)
-  text = typo.text
+  const original = (input ?? '').normalize('NFC').replace(/\r\n?/g, '\n').replace(/[“”«»]/g, '"').replace(/[‘’´]/g, "'")
+  // Guess misspelled words — never names, places, brands or real words.
+  const protect = new Set<string>([...KNOWN_WORDS, ...PROTECTED_PROPER, ...index.keys.flatMap((k) => k.split(' '))])
+  const typo = correctTypos(original, protect, { targets: TYPO_TARGETS, realWords: REAL_WORD_NEIGHBOURS, isKnown: (w) => Boolean(spanishVerb(w)) })
+  const text = typo.text
 
   const sentences = toSentences(text)
+  // The same sentences in the person's own words (typo fixes never add or remove punctuation).
+  const originalSentences = toSentences(original, true)
+  const sameShape = originalSentences.length === sentences.length
 
-  // Group sentences: follow-ups ("She has until Friday") join the previous card.
-  const groups: string[][] = []
-  for (const sentence of sentences) {
+  // Group sentences into cards. On the same line, a sentence starts a new card only if it
+  // reads like a new task ("Call John.", "Mia should…"); otherwise it explains the current
+  // one ("La idea es que…", "The kitchen one."). A new line starts a new card unless it is
+  // clearly a follow-up ("She has until Friday").
+  const groups: Array<{ indexes: number[]; line: number }> = []
+  sentences.forEach((sentence, i) => {
     const previous = groups[groups.length - 1]
-    if (previous && !sentence.bullet && isContinuation(sentence.text, ctx)) previous.push(sentence.text)
-    else groups.push([sentence.text])
-  }
+    const joins = previous && !sentence.bullet && (sentence.line === previous.line
+      ? !startsNewTask(sentence.text, ctx)
+      : isContinuation(sentence.text, ctx))
+    if (joins) {
+      previous.indexes.push(i)
+      previous.line = sentence.line
+    } else {
+      groups.push({ indexes: [i], line: sentence.line })
+    }
+  })
 
   const assignable = new Set(people.map((p) => p.id))
   const nameWords = new Set(index.keys.flatMap((k) => k.split(' ')))
   const cards: ParsedCard[] = []
-  for (const group of groups) {
+  for (const { indexes } of groups) {
     if (cards.length >= MAX_CARDS) break
+    const group = indexes.map((i) => sentences[i].text)
     const source = group.join(' ')
+    const originalSource = sameShape ? indexes.map((i) => originalSentences[i].text).join(' ') : source
     const language = detectLanguage(source)
+    const shouting = isShouting(source)
+    const properNames = [...people.flatMap((p) => [p.name, ...(p.aliases ?? [])]), ...PROPER_CASED, ...(language === 'en' ? EN_CALENDAR : [])]
+    const tidy = (t: string) => (shouting ? sentenceCase(t, properNames, language) : t)
     const parts = ctx.splitLists ? splitList(group[0]) : [group[0]]
     let analyses = parts.map((part) => analyze(part, ctx, language))
 
@@ -947,6 +985,11 @@ export function parseQuickAdd(input: string, options: QuickAddOptions): ParsedCa
       if (!a.priority && last.priority) { a.priority = last.priority; a.found.priority = last.found.priority }
     }
 
+    // Deliverables spelled out in follow-up sentences become the card's checklist.
+    const checklist = analyses.length === 1
+      ? group.slice(1).flatMap((extra) => deliverables(extra, ctx, language)).map(tidy).slice(0, MAX_CHECKLIST)
+      : []
+
     // Follow-up sentences add details to every card in the group.
     for (const extra of group.slice(1)) {
       const e = analyze(extra, ctx, language)
@@ -964,7 +1007,7 @@ export function parseQuickAdd(input: string, options: QuickAddOptions): ParsedCa
 
     for (const a of analyses) {
       if (cards.length >= MAX_CARDS) break
-      let title = a.title || cleanTitle(source) || source.trim()
+      let title = tidy(a.title || cleanTitle(source) || source.trim())
       let truncated = false
       if (title.length > MAX_TITLE) {
         const cut = title.slice(0, MAX_TITLE - 1)
@@ -973,7 +1016,7 @@ export function parseQuickAdd(input: string, options: QuickAddOptions): ParsedCa
       }
       // Keep the original wording when details were pulled out of it, so nothing typed is lost.
       const hasDetails = Boolean(a.found.assignees.length || a.found.date || a.found.priority || a.labels.length || group.length > 1 || a.warnings.length)
-      const description = (hasDetails || truncated) && !sameText(title, source) ? source : null
+      const description = (hasDetails || truncated || checklist.length > 0 || shouting) && !sameText(title, originalSource) ? originalSource.trim() : null
 
       const guesses = [...a.found.guesses]
       for (const c of typo.corrections) {
@@ -1009,17 +1052,114 @@ export function parseQuickAdd(input: string, options: QuickAddOptions): ParsedCa
         dueDate: a.date,
         priority,
         labels: a.labels,
-        source,
+        source: originalSource,
         language,
         found: { ...a.found, guesses },
         warnings: a.warnings,
         refs: a.refs,
         dateAlternative: a.dateAlternative,
         suggestions,
+        checklist,
       })
     }
   }
   return cards
+}
+
+// ─── Briefs: new task or explanation? ─────────────────────────────────────────
+
+const PERSON_START_CACHE = new WeakMap<PeopleIndex, RegExp>()
+const ASSIGNMENT_START = /^(?:(?:i|we)(?:'d|\s+would)?\s+(?:really\s+)?(?:want|need|like)\s+\S+\s+to\b|(?:quiero|necesito|queremos|necesitamos|quisiera)\s+que\b|(?:pidele|pide(?:le)?|dile|recuerdale)\s+a\b|(?:ask|tell|get|have|let|remind)\s+\S+\b|(?:re)?assign\b|asigna|remind\s+me\b|recuerdame\b)/i
+const NAME_WITH_MODAL = new RegExp(`^[A-Z][A-Za-z'-]{1,20}\\s+(?:${MODAL_EN}|${MODAL_ES})\\b`)
+
+/** Does this sentence (on the same line) start a new task, or explain the current one? */
+function startsNewTask(sentence: string, ctx: Ctx): boolean {
+  const folded = foldSame(sentence)
+  if (STRONG_CONTINUATION.test(folded) || DEADLINE_REMARK.test(folded)) return false
+  // Drop lead-ins: fillers ("also", "y", "por favor"), an introduction ("Due to the rain,"),
+  // and a short label ("Friday:", "Urgente:").
+  let t = sentence.trim()
+  for (let i = 0; i < 6; i++) {
+    const before = t
+    t = t.replace(/^[\s,;:\-–—.!?¡¿'"()[\]]+/, '')
+    for (const filler of LEAD_FILLERS) t = rewrite(t, new RegExp(filler.source, filler.flags.replace('g', '')), () => '')
+    if (INTRO_CLAUSE.test(foldSame(t)) && t.includes(',')) t = t.slice(t.indexOf(',') + 1)
+    t = t.replace(/^[^:,\s]+(?:\s+[^:,\s]+){0,2}\s*:\s*/, '')
+    if (t === before) break
+  }
+  if (!t) return false
+  const f = lowerFold(t)
+  if (new RegExp(`^${VERB_CLITIC}\\b`, 'i').test(f) || f.startsWith('@') || ASSIGNMENT_START.test(f) || NAME_WITH_MODAL.test(stripDiacritics(t))) return true
+  let personStart = PERSON_START_CACHE.get(ctx.index)
+  if (!personStart) {
+    personStart = new RegExp(`^(?:${ctx.index.regex.source})`, 'i')
+    PERSON_START_CACHE.set(ctx.index, personStart)
+  }
+  return personStart.test(f)
+}
+
+// ─── Deliverables (checklist) ────────────────────────────────────────────────
+
+const MAX_CHECKLIST = 10
+const MAX_CHECKLIST_ITEM = 200
+const DELIVERABLE_INTRO = /^(?:la\s+idea\s+es\s+(?:que\s+)?|el\s+objetivo\s+es\s+(?:que\s+)?|la\s+meta\s+es\s+(?:que\s+)?|lo\s+que\s+(?:quiero|necesito|queremos)\s+es\s+(?:que\s+)?|the\s+(?:idea|goal|plan|point|aim)\s+is\s+(?:that\s+|to\s+)?|i\s+want\s+you\s+to\s+|we\s+need\s+you\s+to\s+|para\s+que\s+|so\s+that\s+|in\s+order\s+to\s+|para\s+|to\s+|basically\s*,?\s*|basicamente\s*,?\s*)/i
+const DELIVERABLE_BREAK = new RegExp(`,\\s*(?:para|to|in\\s+order\\s+to)\\s+(?=${VERB_CLITIC}\\b)`, 'gi')
+const PRONOUN_ONLY = /^\S+(?:\s+on)?\s+(?:that|it|this|them|eso|esto|lo|la|ello)$/i
+
+/** "La idea es que explore el mercado y aprenda…" → ["Explorar el mercado", "Aprender…"]. */
+function deliverables(sentence: string, ctx: Ctx, language: QuickLanguage): string[] {
+  let rest = analyze(sentence, ctx, language).title
+  for (let i = 0; i < 4; i++) {
+    const before = rest
+    rest = rewrite(rest, DELIVERABLE_INTRO, () => '').trim()
+    if (rest === before) break
+  }
+  if (!rest) return []
+  const parts = splitList(rest).flatMap((part) => {
+    const cuts = findAll(part, DELIVERABLE_BREAK)
+    if (cuts.length === 0) return [part]
+    const pieces: string[] = []
+    let from = 0
+    for (const cut of cuts) { pieces.push(part.slice(from, cut.index)); from = cut.end }
+    pieces.push(part.slice(from))
+    return pieces
+  })
+  const verbStart = new RegExp(`^${VERB_CLITIC}\\b`, 'i')
+  return parts
+    .map((part) => {
+      const item = cleanTitle(part)
+      return language === 'es' ? spanishTitle(item, true) : item
+    })
+    .filter((item) => item && verbStart.test(lowerFold(item)) && !PRONOUN_ONLY.test(lowerFold(item)))
+    .map((item) => (item.length > MAX_CHECKLIST_ITEM ? `${item.slice(0, MAX_CHECKLIST_ITEM - 1).trimEnd()}…` : item))
+}
+
+// ─── ALL CAPS → normal writing ───────────────────────────────────────────────
+
+const PROPER_CASED = [...PLACES, ...PROPER_WORDS]
+const PROTECTED_PROPER = new Set(PROPER_CASED.flatMap((p) => lowerFold(p).split(/\s+/)))
+const TYPO_TARGETS = generalTypoTargets()
+const EN_CALENDAR = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday', 'January', 'February',
+  'March', 'April', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+
+/** Mostly capital letters (a shouted message), with enough letters to tell. */
+function isShouting(text: string): boolean {
+  const letters = text.match(/\p{L}/gu) ?? []
+  if (letters.length < 12) return false
+  const upper = letters.filter((c) => c !== c.toLowerCase()).length
+  return upper / letters.length >= 0.7
+}
+
+/** "POST ON INSTAGRAM FOR SEATTLE" → "Post on Instagram for Seattle". */
+function sentenceCase(text: string, names: string[], language: QuickLanguage): string {
+  let t = text.toLowerCase()
+  const sorted = Array.from(new Set(names.filter(Boolean))).sort((a, b) => b.length - a.length)
+  for (const name of sorted) {
+    const pattern = new RegExp(`(?<![\\p{L}])${escapeRe(name.toLowerCase()).replace(/ /g, '\\s+')}(?![\\p{L}])`, 'gu')
+    t = t.replace(pattern, name)
+  }
+  if (language === 'en') t = t.replace(/(?<![\p{L}])i(?![\p{L}'])/gu, 'I')
+  return capitalize(t)
 }
 
 function isContinuation(sentence: string, ctx: Ctx): boolean {

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import {
-  AlertTriangle, BookOpen, Brain, CalendarDays, CornerDownLeft, Flag, Lightbulb, Loader2, Plus, Sparkles, Tag, Wand2, X,
+  AlertTriangle, BookOpen, Brain, CalendarDays, CornerDownLeft, Flag, Lightbulb, ListChecks, Loader2, Plus, Sparkles, Tag, Wand2, X,
 } from 'lucide-react'
 import { createTask } from '@/lib/actions/tasks'
 import { forgetQuickAdd, getQuickAddKnowledge, rememberQuickAdd } from '@/lib/actions/quick-add'
@@ -29,7 +29,7 @@ interface Props {
   onCreated?: () => void
 }
 
-type CardEdits = Partial<{ title: string; assigneeIds: string[]; date: string; time: string; priority: QuickPriority; labels: string[] }>
+type CardEdits = Partial<{ title: string; assigneeIds: string[]; date: string; time: string; priority: QuickPriority; labels: string[]; checklist: string[] }>
 interface EditState { key: string; edits: Record<number, CardEdits>; removed: number[] }
 interface Knowledge { memory: QuickAddMemory; history: HistoryModel }
 
@@ -56,6 +56,7 @@ const CHEAT_SHEET: Array<{ topic: string; en: string; es: string }> = [
   { topic: 'Urgency', en: 'urgent · ASAP · right away · high priority · no rush · whenever', es: 'urgente · lo antes posible · cuanto antes · prioridad alta · sin prisa · cuando puedas' },
   { topic: 'Many', en: 'one per line · or: pay the rent, call John and email Ana', es: 'una por línea · o: llamar al proveedor y pagar la factura' },
   { topic: 'Label', en: '#plumbing', es: '#plomería' },
+  { topic: 'Briefs', en: 'Paste a whole message: “Noelia, your main task is… The idea is to… You have 2 weeks to…” → one card + checklist', es: 'Pega el mensaje completo: “Noelia, tu mayor task es… La idea es que… Tienes 2 semanas para…” → una tarjeta + checklist' },
 ]
 
 function describeDate(dueDate: string | null) {
@@ -116,6 +117,7 @@ export default function QuickAdd({ people, currentUserId, isAdmin = false, onCre
       const assigneeIds = edit.assigneeIds ?? card.assigneeIds
       const priority = edit.priority ?? card.priority
       const labels = edit.labels ?? card.labels
+      const checklist = edit.checklist ?? card.checklist
       // Hide suggestions that are already true.
       const suggestions = card.suggestions.filter((s) =>
         (s.kind === 'assignee' && !assigneeIds.includes(s.value))
@@ -128,6 +130,7 @@ export default function QuickAdd({ people, currentUserId, isAdmin = false, onCre
         assigneeIds,
         priority,
         labels,
+        checklist,
         dueDate,
         suggestions,
       }
@@ -158,6 +161,10 @@ export default function QuickAdd({ people, currentUserId, isAdmin = false, onCre
           due_date: card.dueDate,
           labels: card.labels,
           assigned_to: card.assigneeIds,
+          // Same shape the task panel uses for its checklist.
+          custom_fields: card.checklist.length > 0
+            ? { checklist: card.checklist.map((label) => ({ label, checked: false })) }
+            : undefined,
         })
         if (result.success) {
           created += 1
@@ -362,6 +369,30 @@ export default function QuickAdd({ people, currentUserId, isAdmin = false, onCre
                     </span>
                   ))}
                 </div>
+
+                {card.checklist.length > 0 && (
+                  <div className="mt-2 rounded-lg border border-border/60 bg-card/60 px-2.5 py-2">
+                    <p className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      <ListChecks size={12} aria-hidden="true" /> Checklist from the message
+                    </p>
+                    <ul aria-label="Checklist" className="space-y-1">
+                      {card.checklist.map((item, i) => (
+                        <li key={`${i}:${item}`} className="flex items-start gap-2 text-xs text-foreground">
+                          <span aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border border-border" />
+                          <span className="flex-1 leading-snug">{item}</span>
+                          <button
+                            type="button"
+                            aria-label={`Remove checklist item “${item}”`}
+                            onClick={() => patch(card.index, { checklist: card.checklist.filter((_, j) => j !== i) })}
+                            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                          >
+                            <X size={11} />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
 
                 {card.suggestions.length > 0 && (
                   <div className="mt-2 flex flex-wrap items-center gap-2 px-1">

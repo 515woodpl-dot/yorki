@@ -151,7 +151,30 @@ const badge = async (page) => (await page.locator('header button[aria-label^="No
   await ana.screenshot({ path: (process.env.SP || '/tmp') + '/quick-add-suggest.png' })
   await box(ana).fill('')
 
-  // 10 · Phone layout.
+  // 10 · The real brief that motivated Quick add: a long, all-caps message to Noelia.
+  const BRIEF = 'NOELIA, TU MAYOR TASK ES ELMSIGUIENTE, TIENES QUE HACER UN REASEARCH COMO EN WASHINGTON STATE. OREGON Y CALIFORNIA HACEN LOS POST DE SOCIAL MEDIA RELACIONADO A NYESTR COMPAÑIA DE COUNTERTOPS. LA IDEA ES QUE EXPLORE EL MERCADO Y APRENDA QUE ESTAMOS HACIENDO BIEN, MAL Y COMO DEBEMOS DE MEJORAR LA MARCA PARA ESTABLECERNOS A UNOS DE LOS PRINCIPALES FABRICANTES DE COUNTERTOPS AL MENOS EN LA CIUDSD DE SEATTLE POR VIA DEL SOCIAL MEDJA, TIENES 2 SEMANAS PARA MOSTRARNOS JN PLAN Y COMO EJECUTALO.'
+  await box(ana).fill(BRIEF)
+  check('brief: one card, not three', await until(async () => (await previewTitles(ana)).length === 1), `(${JSON.stringify(await previewTitles(ana))})`)
+  const briefTitle = (await previewTitles(ana))[0] ?? ''
+  check('brief: clean title, no shouting', /^Hacer un research como en Washington State, Oregon y California/.test(briefTitle) && !/[A-Z]{4,}/.test(briefTitle), `("${briefTitle}")`)
+  check('brief: Noelia assigned', (await qa(ana).getByText('Noelia Ramos').count()) > 0)
+  const twoWeeks = new Date(); twoWeeks.setDate(twoWeeks.getDate() + 14)
+  const iso = `${twoWeeks.getFullYear()}-${String(twoWeeks.getMonth() + 1).padStart(2, '0')}-${String(twoWeeks.getDate()).padStart(2, '0')}`
+  check('brief: due in 2 weeks', (await qa(ana).getByLabel('Due date', { exact: true }).inputValue()) === iso)
+  check('brief: high priority ("tu mayor task")', (await qa(ana).getByLabel('Priority', { exact: true }).inputValue()) === 'high')
+  const items = await qa(ana).getByRole('list', { name: 'Checklist' }).getByRole('listitem').allInnerTexts()
+  check('brief: deliverables as checklist', items.length === 3 && /^Explorar el mercado/.test(items[0]) && /^Mostrarnos un plan/.test(items[2]), `(${JSON.stringify(items)})`)
+  check('brief: typo fixes shown', (await qa(ana).getByText(/“REASEARCH” → RESEARCH/).count()) > 0)
+  await ana.screenshot({ path: (process.env.SP || '/tmp') + '/quick-add-brief.png', fullPage: false })
+  await qa(ana).getByRole('button', { name: 'Create card' }).click()
+  check('brief: created', await until(async () => (await card(ana, briefTitle).count()) > 0))
+  await card(ana, briefTitle).click()
+  check('brief: card shows the checklist', await until(async () => (await ana.getByText('Explorar el mercado').count()) > 0))
+  check('brief: card keeps the original message', (await ana.getByText(/TIENES 2 SEMANAS PARA MOSTRARNOS/).count()) > 0)
+  await ana.keyboard.press('Escape')
+  await ana.goto(BASE + '/dashboard'); await qa(ana).waitFor()
+
+  // 11 · Phone layout.
   const phone = await login(browser, 'sess-ana', { width: 390, height: 844 })
   await box(phone).fill('Ana should call the supplier by Friday, urgent')
   await until(async () => (await previewTitles(phone)).length === 1)
