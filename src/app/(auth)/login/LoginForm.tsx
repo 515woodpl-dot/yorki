@@ -6,6 +6,8 @@ import { Eye, EyeOff, Loader2, LogIn } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { signIn } from './actions'
 
+const APP_BASE_PATH = process.env.NODE_ENV === 'production' ? '/task' : ''
+
 export default function LoginForm() {
   const router = useRouter()
 
@@ -18,6 +20,7 @@ export default function LoginForm() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
+    if (!email.trim() || !password) { setError('Enter your email and password.'); return }
     setLoading(true)
 
     try {
@@ -29,6 +32,13 @@ export default function LoginForm() {
         return
       }
 
+      // Make sure this browser actually kept the sign-in. Otherwise say so instead of doing nothing.
+      const check = await fetch(`${APP_BASE_PATH}/api/session/refresh`, { method: 'POST', credentials: 'same-origin' }).catch(() => null)
+      if (!check || !check.ok) {
+        setError('Signed in, but this browser did not keep the session. Open Yorki using its https:// address and try again.')
+        setLoading(false)
+        return
+      }
       router.push('/dashboard')
       router.refresh()
     } catch {
@@ -96,7 +106,7 @@ export default function LoginForm() {
 
       <button
         type="submit"
-        disabled={loading || !email || !password}
+        disabled={loading}
         className={cn(
           'w-full h-11 rounded-lg font-medium text-sm',
           'bg-primary text-primary-foreground',

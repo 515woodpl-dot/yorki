@@ -12,7 +12,7 @@
  *   - Sessions expire after 10 minutes of inactivity
  */
 
-import { cookies } from 'next/headers'
+import { cookies, headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import bcrypt from 'bcryptjs'
 import { randomUUID } from 'node:crypto'
@@ -43,6 +43,24 @@ export async function verifyPassword(plain: string, hash: string): Promise<boole
   return bcrypt.compare(plain, hash)
 }
 
+/**
+ * Mark the cookie Secure only when the visitor is really on HTTPS. Browsers silently drop a Secure
+ * cookie received over plain http (e.g. http://192.168.x.x:3000 or an http Tailscale/LAN address),
+ * which made sign-in appear to do nothing. COOKIE_SECURE=true/false overrides the detection.
+ */
+async function useSecureCookie(): Promise<boolean> {
+  const forced = process.env.COOKIE_SECURE
+  if (forced === 'true') return true
+  if (forced === 'false') return false
+  if (process.env.NODE_ENV !== 'production') return false
+  try {
+    const proto = (await headers()).get('x-forwarded-proto')?.split(',')[0]?.trim().toLowerCase()
+    return proto === 'https'
+  } catch {
+    return false
+  }
+}
+
 // ─── Session ──────────────────────────────────────────────────────────────────
 
 export async function createSession(userId: string): Promise<string> {
@@ -66,7 +84,7 @@ export async function createSession(userId: string): Promise<string> {
     sameSite: 'lax',
     path:     '/',
     expires,
-    secure:   process.env.NODE_ENV === 'production',
+    secure:   await useSecureCookie(),
   })
 
   return sessionId
@@ -143,7 +161,7 @@ export async function refreshSession(): Promise<boolean> {
       sameSite: 'lax',
       path: '/',
       expires,
-      secure: process.env.NODE_ENV === 'production',
+      secure: await useSecureCookie(),
     })
     return true
   } catch {
