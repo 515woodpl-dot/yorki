@@ -236,6 +236,17 @@ function migrate(db: Database.Database) {
       read_at    TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, created_at);
+
+    -- Quick add: what each person taught it (nicknames, date preferences).
+    CREATE TABLE IF NOT EXISTS quick_add_memory (
+      user_id    TEXT NOT NULL,
+      kind       TEXT NOT NULL,   -- 'alias' | 'pref'
+      key        TEXT NOT NULL,   -- 'jimmy' | 'nextWeekday' | 'numericOrder'
+      value      TEXT NOT NULL,   -- person id | preference value
+      hits       INTEGER NOT NULL DEFAULT 1,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, kind, key)
+    );
   `)
 
   // Seed if empty

@@ -1,53 +1,153 @@
 # Quick add — the chat box on the board
 
-Type a sentence the way you would say it; Yorki turns it into cards. It is a set
-of plain rules (no AI, no internet lookups): instant, predictable, and your text
-stays in the browser until you press **Enter** / **Create**.
+Type what needs to happen, in **English or Spanish** (or a mix), the way you
+would say it to a coworker. Yorki turns it into cards. It's plain rules, not AI:
+instant, predictable, and your text stays in the browser until you press
+**Enter** / **Create**.
 
-You always get a **live preview** first. Fix the title, people, date, time or
-priority there, or remove a card, before anything is created. Cards land in
-**Inbox** exactly like cards from the New task form (same emails, notifications,
-and calendar behaviour).
+You always see a **live preview** first. Fix anything there (title, people,
+date, time, priority, labels) or remove a card before it is created. Cards land
+in **Inbox** like any other new task (same emails, notifications, calendar).
 
-## What it understands (English)
+---
 
-| You type | It does |
+## Vocabulary — what you can type
+
+Accents are optional everywhere (`miercoles` = `miércoles`, `manana` = `mañana`).
+
+### Who does it
+
+| | English | Español |
+|---|---|---|
+| Someone | `@Mia fix the gate` · `Mia should…` · `Mia will…` · `Mia needs to…` · `Mia to…` · `Mia: …` | `@Mia arreglar la puerta` · `Mia tiene que…` · `Mia debe…` · `Mia va a…` · `Mia, …` · `Para Mia: …` |
+| Asking | `I want Mia to…` · `Ask Mia to…` · `Have Mia…` · `Get Mia to…` · `Remind Mia to…` | `Quiero que Mia…` · `Necesito que Mia…` · `Pídele a Mia que…` · `Que Mia…` |
+| Assigning | `Assign this to Mia` · `Assign the install to Mia` · `owner: Mia` · `done by Mia` | `Asigna esto a Mia` · `Asignar la instalación a Mia` · `responsable: Mia` · `a cargo de Mia` |
+| Two people | `Ana and Mia should…` · `@Ana @Mia …` | `Ana y Mia tienen que…` |
+| **You** | `Remind me to…` · `I'll…` · `I need to…` · `Assign to me` | `Recuérdame…` · `Tengo que…` · `Voy a…` · `Asígnamelo` |
+
+A name without `@` only counts as "who does it" in those phrasings, so
+`Email Mia about the invoice` / `Llamar a Mia` are *about* Mia, not for her.
+
+### When
+
+| | English | Español |
+|---|---|---|
+| Days | `today` · `tonight` · `tomorrow` · `day after tomorrow` | `hoy` · `esta noche` · `mañana` · `pasado mañana` |
+| Weekdays | `Friday` · `this Friday` · `next Friday` · `Friday next week` | `el viernes` · `este viernes` · `el próximo viernes` · `el viernes que viene` · `el viernes de la próxima semana` |
+| In… | `in 3 days` · `in two weeks` · `within a month` · `3 days from now` | `en 3 días` · `dentro de dos semanas` · `en un mes` |
+| Periods | `next week` · `this week` · `end of the week` · `end of month` · `next month` · `end of year` · `EOD` · `this weekend` | `la semana que viene` · `la próxima semana` · `esta semana` · `fin de mes` · `el mes que viene` · `fin de año` · `fin de semana` |
+| Dates | `Dec 5` · `December 5th` · `5th of December` · `12/5` · `2026-12-05` · `by the 15th` | `5 de diciembre` · `el 5 de dic.` · `5/12` · `el 15` · `para el 15` · `antes del 10` |
+| Deadlines | `by…` · `until…` · `before…` · `due…` · `deadline is…` · `no later than…` | `para…` · `hasta…` · `antes de…` · `a más tardar…` · `fecha límite…` · `plazo…` |
+| Ranges | `from Monday to Friday` → due Friday | `del lunes al viernes` → para el viernes |
+
+- `Friday` / `el viernes` = the **coming** Friday (if today is Friday, next week's).
+- `next Friday`: English = Friday of **next week**; Spanish `el próximo viernes` = the **coming** one.
+  Correct it once in the preview and Quick add uses your meaning from then on.
+- `12/5` = **Dec 5** in English and **12 May** in Spanish. Correct it once and it remembers.
+- A day/month that has already passed this year means next year.
+
+### Time
+
+| English | Español |
 |---|---|
-| `I want @Mia to work on the roof` | Assigns Mia · title **Work on the roof** |
-| `Ana should call the supplier` · `Have Ana…` · `Ask Ana to…` · `Ana: …` · `Assign this to Ana` | Assigns Ana |
-| `Remind me to call John` · `I'll order tiles` | Assigns **you** |
-| `…by Friday` · `until Dec 5` · `tomorrow` · `in 3 days` · `next week` · `end of month` · `12/5` · `the 15th` | Due date (US month/day order) |
-| `…Friday at 3pm` · `at 15:00` · `by noon` | Due time |
-| `urgent` · `ASAP` · `right away` | Priority **Urgent** |
-| `high priority` · `this is important` | **High** |
-| `no rush` · `whenever` · `not urgent` | **Low** |
-| `#plumbing` | Label |
-| *one per line*, bullets, sentences, or `Pay the rent, call John and email Ana` | Several cards |
-| `I want @Mia to work on this. She has until Dec 5.` | **One** card — a follow-up starting with *she / he / they / it / this / by / until / due* adds details to the previous card |
+| `at 3pm` · `3:30 pm` · `15:00` · `at noon` · `at 3` (= 3 pm) · `3 o'clock` | `a las 3` (= 15:00) · `a las 10 de la mañana` · `a las 4 de la tarde` · `a las 9 y media` · `al mediodía` · `a las 15:00` |
+| `in the morning` (9:00) · `in the afternoon` (14:00) · `in the evening` (18:00) | `por la mañana` (9:00) · `por la tarde` (14:00) · `por la noche` (19:00) |
 
-The original wording is kept in the card's description whenever details were
-pulled out of it.
+A plain hour is read as working hours: 1–6 → afternoon, 7–11 → morning.
 
-## Good to know
+### How urgent
 
-- **Names:** `@Mia`, `Mia`, or `@Mia Porter`. A bare name (no `@`) only counts as the
-  assignee in phrases like "Mia should…", so `Email Mia about the invoice` is *not*
-  assigned to Mia. If two people share a first name, or you `@` someone who isn't a
-  user, it warns you instead of guessing.
-- **Dates:** `Friday` means the *next* Friday; `this Friday` includes today; `next Friday`
-  is the Friday of next week. A month/day that has already passed means next year.
-  Always check the date shown in the preview.
-- **Splitting:** "pay the bill and call John" becomes two cards. Untick
-  *Split … into separate cards* if you want one.
-- Up to 20 cards per message. Anyone signed in can use it; people you can assign are
-  the same as on the New task form.
+| Priority | English | Español |
+|---|---|---|
+| **Urgent** | `urgent` · `ASAP` · `right away` · `right now` · `immediately` · `emergency` · `critical` · `top priority` · `drop everything` | `urgente` · `lo antes posible` · `cuanto antes` · `de inmediato` · `ya mismo` · `para ayer` · `sin falta` · `prioridad máxima` · `emergencia` |
+| **High** | `high priority` · `very important` · `it's important` · `important!` · `must-do` | `prioridad alta` · `alta prioridad` · `muy importante` · `es importante` · `prioritario` |
+| **Low** | `low priority` · `no rush` · `not urgent` · `whenever` · `when you can` · `nice to have` · `someday` | `baja prioridad` · `sin prisa` · `no es urgente` · `no urge` · `cuando puedas` · `cuando tengas tiempo` · `algún día` |
+
+### Several cards at once
+
+- One per **line** or **bullet** (`-`, `*`, `1.`), or one per **sentence**.
+- Lists of actions: `Pay the rent, call John and email Ana` → 3 cards ·
+  `Llamar al proveedor, pedir los azulejos y pagar la factura` → 3 cards.
+  Who/when said once is shared: `Ana should review the quote and approve the budget by Friday`.
+  Untick *Split… into separate cards* to keep one card.
+- **Follow-ups join the previous card**: `I want @Mia to work on this. She has until Dec 5.`
+  · `Quiero que Mia trabaje en esto. Ella tiene hasta el viernes.` · `…It's urgent.` · `…Es urgente.`
+- Introductions are not list items: `Due to the rain, call the roofer` / `Debido a la lluvia, llamar al techador`.
+
+### Labels
+
+`#plumbing` · `#q4` · `#plomería` (anywhere in the sentence).
+
+### Words that start tasks
+
+Quick add knows ~180 English and ~160 Spanish action verbs (800+ Spanish forms) (all their common
+forms: `llama`, `llame`, `llámalo` → *llamar*). Spanish titles are written in the
+infinitive: `Que Mia revise el presupuesto` → **Revisar el presupuesto**.
+
+| Area | English | Español |
+|---|---|---|
+| People | call, call back, email, text, follow up, remind, ask, tell, invite, meet, visit, reply | llamar, avisar, contactar, contestar, mandar, enviar, escribir, visitar, invitar, coordinar, confirmar |
+| Office & money | pay, bill, invoice, quote, estimate, collect, refund, sign, approve, submit, file, renew, print, scan, schedule, reschedule, book, cancel, review, check, update, prepare, draft | pagar, cobrar, facturar, cotizar, presupuestar, firmar, aprobar, presentar, archivar, renovar, imprimir, escanear, programar, agendar, reservar, cancelar, revisar, verificar, actualizar, preparar, redactar |
+| Buying & stock | buy, order, reorder, restock, count, receive, return, pick up, drop off, deliver, ship, load, unload, haul, store, label | comprar, pedir, surtir, contar, recibir, devolver, recoger, llevar, traer, entregar, cargar, transportar, guardar, almacenar, etiquetar |
+| Shop & job site | measure, template, fabricate, cut, polish, hone, grind, seal, reseal, caulk, glue, epoxy, drill, level, shim, install, remove, demo, inspect, test, fix, repair, patch, replace, clean, sweep, paint | medir, plantillar, fabricar, cortar, pulir, sellar, lijar, pegar, taladrar, perforar, nivelar, instalar, desinstalar, retirar, demoler, inspeccionar, probar, arreglar, reparar, reemplazar, limpiar, barrer, pintar |
+
+### Words that are cleaned out of titles
+
+`please`, `let's`, `I want to`, `we need to`, `can you`, `don't forget to`, `todo:` ·
+`por favor`, `vamos a`, `hay que`, `tenemos que`, `no olvides`, `recuerda`, `pendiente:`.
+`lets work on this project` → **Work on this project** · `Hay que pagar la luz` → **Pagar la luz**.
+
+---
+
+## It guesses words
+
+Typos in dates, urgency and names are understood and **shown** in the preview
+(✨ `“tomorow” → tomorrow`), never applied silently:
+
+- `tomorow`, `tommorrow`, `wensday`, `thrusday`, `fridy`, `urgnet`, `priorty`, `untill`, `2morrow`
+- `viernez`, `juebes`, `lunez`, `urjente`, `prioridda`, `manana` (no ñ), `miercoles`
+- `@Mai` → **Mia Porter** (closest real person, one letter off)
+
+It only corrects towards a short list of date/urgency words, needs the same first
+letter, and leaves real words alone (`fridge`, `match`, `trade`, `Friday's report`,
+e-mail addresses, @names of people who exist).
+
+## It learns
+
+**From your corrections** (remembered for you, on the server):
+
+| You type | It doesn't know… | You fix it in the preview | Next time |
+|---|---|---|---|
+| `Jimmy should sweep the shop` | "Who is “Jimmy”?" | pick **James Lee** | `Jimmy` = James Lee |
+| `@Ana call the plumber` | two people named Ana | pick **Ana Lopez** | `Ana` = Ana Lopez |
+| `@Mai order paint` | guessed **Mia** | keep it | no longer a guess |
+| `pay the bill next Friday` | chose Nov 27 | change to Nov 20 | "next Friday" = the coming one |
+| `pay the bill 5/12` | chose May 12 | change to Dec 5 | day/month order |
+
+See and undo everything under **What Quick add has learned** in the panel.
+
+**From past cards** (computed from cards you can see; nothing extra is stored):
+if most cards about a word went to the same person, priority or label, it
+offers that as a one-click suggestion — e.g. *“+ Mia Porter · Mia did 4 of 5
+‘leak’ cards”*. Suggestions are never applied on their own. They need at least
+3 similar cards (2 for labels), and staff only learn from their own cards.
+
+---
+
+## Adding words
+
+All word lists are in `src/lib/quick-add/vocabulary.ts` (verbs, Spanish verb
+forms, months, weekdays, number words, urgency phrases, fillers, typos). Add a
+word, run `npm test`, done.
+
+Code: `parse.ts` (rules) · `fuzzy.ts` (typo guessing) · `learn.ts` (learning) ·
+`src/lib/actions/quick-add.ts` (remembering, per person) ·
+`src/components/board/QuickAdd.tsx` (box + preview).
+Tests: `tests/quick-add.test.cjs`, `tests/quick-add-smart.test.cjs`, `tests/e2e/quick-add.js`.
 
 ## Limits
 
-- **English only** for now (dates, weekdays, "urgent", "should", …).
-- It follows rules, not meaning: unusual wording may be missed, which is why you
-  see the preview before creating.
-
-Code: `src/lib/quick-add/parse.ts` (rules, with tests in `tests/quick-add.test.cjs`) ·
-`src/components/board/QuickAdd.tsx` (box + preview) ·
-`tests/e2e/quick-add.js` (browser test).
+- English and Spanish only.
+- It follows rules, not meaning: unusual wording may be missed — that's why
+  there's a preview.
+- Up to 20 cards per message.

@@ -1,10 +1,14 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { AlertTriangle, CalendarDays, CornerDownLeft, Flag, Loader2, Sparkles, Tag, X } from 'lucide-react'
+import {
+  AlertTriangle, BookOpen, Brain, CalendarDays, CornerDownLeft, Flag, Lightbulb, Loader2, Plus, Sparkles, Tag, Wand2, X,
+} from 'lucide-react'
 import { createTask } from '@/lib/actions/tasks'
+import { forgetQuickAdd, getQuickAddKnowledge, rememberQuickAdd } from '@/lib/actions/quick-add'
 import { parseQuickAdd, type QuickPriority } from '@/lib/quick-add/parse'
+import { lessonsFromEdit, type HistoryModel, type QuickAddLesson, type QuickAddMemory } from '@/lib/quick-add/learn'
 import MentionTextarea from '@/components/tasks/MentionTextarea'
 import { cn } from '@/lib/utils'
 import type { MentionableUser, UserRole } from '@/lib/types'
@@ -23,8 +27,9 @@ interface Props {
   onCreated?: () => void
 }
 
-type CardEdits = Partial<{ title: string; assigneeIds: string[]; date: string; time: string; priority: QuickPriority }>
+type CardEdits = Partial<{ title: string; assigneeIds: string[]; date: string; time: string; priority: QuickPriority; labels: string[] }>
 interface EditState { key: string; edits: Record<number, CardEdits>; removed: number[] }
+interface Knowledge { memory: QuickAddMemory; history: HistoryModel }
 
 const PRIORITIES: Array<{ value: QuickPriority; label: string }> = [
   { value: 'low', label: 'Low' },
@@ -40,6 +45,17 @@ const PRIORITY_STYLES: Record<QuickPriority, string> = {
   urgent: 'text-red-600 dark:text-red-400',
 }
 
+/** What you can type — shown in the panel. Keep in sync with docs/QUICK-ADD.md. */
+const CHEAT_SHEET: Array<{ topic: string; en: string; es: string }> = [
+  { topic: 'Who', en: '@Mia … · Mia should … · Have Mia … · Ask Mia to … · Assign this to Mia', es: '@Mia … · Quiero que Mia … · Mia tiene que … · Pídele a Mia que … · Asigna esto a Mia' },
+  { topic: 'You', en: 'Remind me to … · I’ll … · I need to …', es: 'Recuérdame … · Tengo que … · Voy a …' },
+  { topic: 'When', en: 'today · tomorrow · Friday · next Friday · in 3 days · next week · end of month · Dec 5 · 12/5', es: 'hoy · mañana · pasado mañana · el viernes · el próximo lunes · en 3 días · la semana que viene · fin de mes · 5 de diciembre · 5/12' },
+  { topic: 'Time', en: 'at 3pm · 15:00 · noon · in the morning / afternoon', es: 'a las 3 · a las 4 de la tarde · al mediodía · por la mañana / tarde' },
+  { topic: 'Urgency', en: 'urgent · ASAP · right away · high priority · no rush · whenever', es: 'urgente · lo antes posible · cuanto antes · prioridad alta · sin prisa · cuando puedas' },
+  { topic: 'Many', en: 'one per line · or: pay the rent, call John and email Ana', es: 'una por línea · o: llamar al proveedor y pagar la factura' },
+  { topic: 'Label', en: '#plumbing', es: '#plomería' },
+]
+
 function describeDate(dueDate: string | null) {
   if (!dueDate) return null
   const [y, m, d] = dueDate.slice(0, 10).split('-').map(Number)
@@ -50,13 +66,26 @@ function describeDate(dueDate: string | null) {
   return `${day}${time}`
 }
 
+function describePref(key: string, value: string) {
+  if (key === 'nextWeekday') return value === 'upcoming' ? '“next Friday” = the coming Friday' : '“next Friday” = Friday of next week'
+  if (key === 'numericOrder') return value === 'dmy' ? '5/12 = 5 December (day/month)' : '5/12 = May 12 (month/day)'
+  return `${key}: ${value}`
+}
+
 const fieldClass = 'h-9 rounded-lg border border-border bg-card px-2 text-xs text-foreground focus:border-primary'
+const chipButton = 'inline-flex h-8 items-center gap-1 rounded-lg border border-dashed border-primary/40 bg-primary/5 px-2.5 text-xs font-medium text-primary hover:bg-primary/10'
 
 export default function QuickAdd({ people, currentUserId, onCreated }: Props) {
   const [text, setText] = useState('')
   const [splitLists, setSplitLists] = useState(true)
   const [busy, setBusy] = useState(false)
   const [state, setState] = useState<EditState>({ key: '', edits: {}, removed: [] })
+  const [knowledge, setKnowledge] = useState<Knowledge | null>(null)
+
+  const loadKnowledge = useCallback(() => {
+    getQuickAddKnowledge().then(setKnowledge).catch(() => { /* works without it */ })
+  }, [])
+  useEffect(() => { loadKnowledge() }, [loadKnowledge])
 
   const mentionCandidates: MentionableUser[] = useMemo(
     () => people.filter((p) => p.id !== currentUserId).map((p) => ({ id: p.id, name: p.name, role: p.role })),
@@ -65,8 +94,8 @@ export default function QuickAdd({ people, currentUserId, onCreated }: Props) {
 
   // Parsing is instant and local; re-run on every keystroke.
   const parsed = useMemo(
-    () => parseQuickAdd(text, { people, currentUserId, splitLists }),
-    [text, people, currentUserId, splitLists],
+    () => parseQuickAdd(text, { people, currentUserId, splitLists, memory: knowledge?.memory, history: knowledge?.history }),
+    [text, people, currentUserId, splitLists, knowledge],
   )
 
   // Manual edits belong to one exact input: change the text and the preview starts fresh.
@@ -82,17 +111,23 @@ export default function QuickAdd({ people, currentUserId, onCreated }: Props) {
         : edit.time !== undefined && card.dueDate
           ? `${card.dueDate.slice(0, 10)}${edit.time ? `T${edit.time}:00` : ''}`
           : card.dueDate
+      const assigneeIds = edit.assigneeIds ?? card.assigneeIds
+      const priority = edit.priority ?? card.priority
+      const labels = edit.labels ?? card.labels
+      // Hide suggestions that are already true.
+      const suggestions = card.suggestions.filter((s) =>
+        (s.kind === 'assignee' && !assigneeIds.includes(s.value))
+        || (s.kind === 'priority' && priority !== s.value)
+        || (s.kind === 'label' && !labels.includes(s.value)))
       return {
         index,
-        source: card.source,
-        found: card.found,
-        warnings: card.warnings,
-        labels: card.labels,
-        description: card.description,
+        parsed: card,
         title: edit.title ?? card.title,
-        assigneeIds: edit.assigneeIds ?? card.assigneeIds,
-        priority: edit.priority ?? card.priority,
+        assigneeIds,
+        priority,
+        labels,
         dueDate,
+        suggestions,
       }
     })
 
@@ -110,19 +145,25 @@ export default function QuickAdd({ people, currentUserId, onCreated }: Props) {
     if (busy || ready.length === 0) return
     setBusy(true)
     const failed: Array<{ source: string; title: string; error: string }> = []
+    const lessons: QuickAddLesson[] = []
     let created = 0
     try {
       for (const card of ready) {
         const result = await createTask({
           title: card.title.trim(),
-          description: card.description,
+          description: card.parsed.description,
           priority: card.priority,
           due_date: card.dueDate,
           labels: card.labels,
           assigned_to: card.assigneeIds,
         })
-        if (result.success) created += 1
-        else failed.push({ source: card.source, title: card.title, error: result.error })
+        if (result.success) {
+          created += 1
+          // What did the person correct? That's what Quick add learns.
+          lessons.push(...lessonsFromEdit(card.parsed, { assigneeIds: card.assigneeIds, dueDate: card.dueDate }))
+        } else {
+          failed.push({ source: card.parsed.source, title: card.title, error: result.error })
+        }
       }
     } catch (error) {
       failed.push({ source: text, title: 'Request', error: error instanceof Error ? error.message : 'Network error' })
@@ -141,15 +182,37 @@ export default function QuickAdd({ people, currentUserId, onCreated }: Props) {
       // Keep only what failed, so pressing Enter again can't duplicate the ones that worked.
       setText(Array.from(new Set(failed.map((f) => f.source))).join('\n'))
     }
+
+    if (lessons.length > 0) {
+      const result = await rememberQuickAdd(lessons).catch(() => null)
+      if (result?.success && result.data.learned > 0) {
+        const first = lessons[0]
+        toast(first.kind === 'alias' ? `Learned: “${first.key}” means ${nameOf(first.value)}` : `Learned: ${describePref(first.key, first.value)}`, {
+          description: 'Quick add will use this next time. You can undo it under “What Quick add has learned”.',
+          icon: <Brain size={16} />,
+        })
+      }
+    }
+    // New cards also improve suggestions.
+    if (created > 0 || lessons.length > 0) loadKnowledge()
   }
 
-  const first = people[0]?.name.split(' ')[0]
-  const second = people[1]?.name.split(' ')[0]
+  async function forget(kind: 'alias' | 'pref', key: string) {
+    const result = await forgetQuickAdd(kind, key)
+    if (result.success) loadKnowledge()
+    else toast.error(result.error)
+  }
+
+  const first = people[0]?.name.split(' ')[0] ?? 'Sam'
+  const second = people[1]?.name.split(' ')[0] ?? 'Alex'
   const examples = [
-    `${first ?? 'Sam'} should call the supplier by Friday at 3pm, urgent`,
+    `${first} should call the supplier by Friday at 3pm, urgent`,
+    `Quiero que ${second} llame al cliente mañana a las 10`,
     'Pay the electric bill tomorrow',
-    `Order tiles, book the truck and email ${second ?? 'Alex'} the quote next week`,
+    `Order tiles, book the truck and email ${second} the quote next week`,
   ]
+  const memory = knowledge?.memory
+  const learnedCount = (memory?.aliases.length ?? 0) + Object.keys(memory?.prefs ?? {}).length
 
   return (
     <section aria-label="Quick add" className="mb-6 rounded-2xl border border-border/70 bg-card p-4 shadow-sm sm:p-5">
@@ -158,25 +221,25 @@ export default function QuickAdd({ people, currentUserId, onCreated }: Props) {
           <Sparkles size={16} aria-hidden="true" />
         </span>
         <h2 className="text-sm font-semibold text-foreground">Quick add</h2>
-        <p className="text-xs text-muted-foreground">Type it the way you would say it. Names, dates and urgency are picked out for you.</p>
+        <p className="text-xs text-muted-foreground">
+          Type it the way you would say it — in English or Spanish. Names, dates and urgency are picked out, and it learns from your corrections.
+        </p>
       </div>
 
-      <div>
-        <MentionTextarea
-          value={text}
-          onChange={setText}
-          candidates={mentionCandidates}
-          onPick={() => {}}
-          onSubmit={handleCreate}
-          enterToSubmit
-          rows={2}
-          menuPosition="below"
-          disabled={busy}
-          ariaLabel="Describe what needs to be done"
-          placeholder="e.g. I want @Mia to call the supplier by Friday. Also pay the electric bill tomorrow"
-          className="w-full resize-y rounded-xl border border-input bg-background px-3.5 py-3 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-60"
-        />
-      </div>
+      <MentionTextarea
+        value={text}
+        onChange={setText}
+        candidates={mentionCandidates}
+        onPick={() => {}}
+        onSubmit={handleCreate}
+        enterToSubmit
+        rows={2}
+        menuPosition="below"
+        disabled={busy}
+        ariaLabel="Describe what needs to be done"
+        placeholder="e.g. I want @Mia to call the supplier by Friday · Quiero que Mia pague la factura mañana"
+        className="w-full resize-y rounded-xl border border-input bg-background px-3.5 py-3 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-60"
+      />
 
       {text.trim() === '' && (
         <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -205,6 +268,7 @@ export default function QuickAdd({ people, currentUserId, onCreated }: Props) {
           </p>
           {cards.map((card) => {
             const available = people.filter((p) => !card.assigneeIds.includes(p.id))
+            const { found, warnings } = card.parsed
             return (
               <div key={card.index} className="rounded-xl border border-border/80 bg-background p-3">
                 <div className="flex items-start gap-2">
@@ -281,21 +345,60 @@ export default function QuickAdd({ people, currentUserId, onCreated }: Props) {
                     </select>
                   </span>
                   {card.labels.map((label) => (
-                    <span key={label} className="inline-flex h-9 items-center gap-1 rounded-lg bg-accent px-2.5 text-xs text-muted-foreground">
+                    <span key={label} className="inline-flex h-9 items-center gap-1 rounded-lg bg-accent pl-2.5 pr-1 text-xs text-muted-foreground">
                       <Tag size={11} aria-hidden="true" />{label}
+                      <button
+                        type="button"
+                        aria-label={`Remove label ${label}`}
+                        onClick={() => patch(card.index, { labels: card.labels.filter((l) => l !== label) })}
+                        className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-background"
+                      >
+                        <X size={11} />
+                      </button>
                     </span>
                   ))}
                 </div>
 
-                {(card.found.date || card.found.priority || card.found.assignees.length > 0) && (
+                {card.suggestions.length > 0 && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2 px-1">
+                    <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                      <Lightbulb size={12} aria-hidden="true" /> From past cards:
+                    </span>
+                    {card.suggestions.map((s) => {
+                      const label = s.kind === 'assignee' ? nameOf(s.value) : s.kind === 'priority' ? PRIORITIES.find((p) => p.value === s.value)?.label ?? s.value : `#${s.value}`
+                      return (
+                        <button
+                          key={`${s.kind}:${s.value}`}
+                          type="button"
+                          title={s.reason}
+                          aria-label={`Accept suggestion: ${label} (${s.reason})`}
+                          onClick={() => {
+                            if (s.kind === 'assignee') patch(card.index, { assigneeIds: [...card.assigneeIds, s.value] })
+                            else if (s.kind === 'priority') patch(card.index, { priority: s.value as QuickPriority })
+                            else patch(card.index, { labels: [...card.labels, s.value] })
+                          }}
+                          className={chipButton}
+                        >
+                          <Plus size={11} aria-hidden="true" />{label}
+                          <span className="hidden font-normal text-muted-foreground sm:inline">· {s.reason}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+
+                {(found.date || found.priority || found.assignees.length > 0 || found.guesses.length > 0) && (
                   <p className="mt-2 px-1 text-[11px] text-muted-foreground">
                     Understood
-                    {card.found.assignees.length > 0 && <> · <b className="font-medium text-foreground">{card.found.assignees.join(', ')}</b></>}
-                    {card.found.date && card.dueDate && <> · “{card.found.date}” → <b className="font-medium text-foreground">{describeDate(card.dueDate)}</b></>}
-                    {card.found.priority && <> · “{card.found.priority}”</>}
+                    {found.assignees.length > 0 && <> · <b className="font-medium text-foreground">{found.assignees.join(', ')}</b></>}
+                    {found.date && card.dueDate && <> · “{found.date}” → <b className="font-medium text-foreground">{describeDate(card.dueDate)}</b></>}
+                    {found.priority && <> · “{found.priority}”</>}
+                    {found.guesses.length > 0 && (
+                      <span className="text-primary"> · <Wand2 size={11} className="inline align-[-1px]" aria-hidden="true" /> {found.guesses.join(' · ')}</span>
+                    )}
                   </p>
                 )}
-                {card.warnings.map((warning) => (
+                {warnings.map((warning) => (
                   <p key={warning} className="mt-1.5 flex items-start gap-1.5 px-1 text-[11px] text-amber-700 dark:text-amber-400">
                     <AlertTriangle size={12} className="mt-px shrink-0" aria-hidden="true" />{warning}
                   </p>
@@ -332,6 +435,51 @@ export default function QuickAdd({ people, currentUserId, onCreated }: Props) {
             {busy ? 'Creating…' : ready.length > 1 ? `Create ${ready.length} cards` : 'Create card'}
           </button>
         </div>
+      </div>
+
+      <div className="mt-2 grid gap-2 border-t border-border/60 pt-2 text-xs sm:grid-cols-2">
+        <details className="group">
+          <summary className="flex min-h-9 cursor-pointer list-none items-center gap-1.5 font-medium text-muted-foreground hover:text-foreground">
+            <BookOpen size={13} aria-hidden="true" /> What can I type?
+          </summary>
+          <dl className="mt-2 space-y-1.5 rounded-xl bg-background p-3 text-[11px] leading-relaxed">
+            {CHEAT_SHEET.map((row) => (
+              <div key={row.topic} className="grid gap-x-3 sm:grid-cols-[64px_1fr]">
+                <dt className="font-semibold text-foreground">{row.topic}</dt>
+                <dd className="text-muted-foreground"><span className="text-foreground">EN</span> {row.en}<br /><span className="text-foreground">ES</span> {row.es}</dd>
+              </div>
+            ))}
+            <p className="pt-1 text-muted-foreground">Typos like “tomorow”, “wensday” or “viernez” are understood. Full list: docs/QUICK-ADD.md</p>
+          </dl>
+        </details>
+        <details className="group">
+          <summary className="flex min-h-9 cursor-pointer list-none items-center gap-1.5 font-medium text-muted-foreground hover:text-foreground">
+            <Brain size={13} aria-hidden="true" /> What Quick add has learned{learnedCount > 0 ? ` (${learnedCount})` : ''}
+          </summary>
+          <div className="mt-2 rounded-xl bg-background p-3 text-[11px]">
+            {learnedCount === 0 ? (
+              <p className="text-muted-foreground">
+                Nothing yet. When you fix a name or a date in the preview (e.g. who “Jimmy” is), Quick add remembers it for you.
+                Suggestions also come from cards you have created before.
+              </p>
+            ) : (
+              <ul className="space-y-1">
+                {memory?.aliases.map((alias) => (
+                  <li key={`alias:${alias.token}`} className="flex items-center justify-between gap-2">
+                    <span>“{alias.token}” → <b className="font-medium">{nameOf(alias.personId)}</b></span>
+                    <button type="button" onClick={() => forget('alias', alias.token)} aria-label={`Forget ${alias.token}`} className="rounded-md px-2 py-1 text-muted-foreground hover:bg-accent hover:text-foreground">Forget</button>
+                  </li>
+                ))}
+                {Object.entries(memory?.prefs ?? {}).map(([key, value]) => (
+                  <li key={`pref:${key}`} className="flex items-center justify-between gap-2">
+                    <span>{describePref(key, String(value))}</span>
+                    <button type="button" onClick={() => forget('pref', key)} aria-label={`Forget ${key}`} className="rounded-md px-2 py-1 text-muted-foreground hover:bg-accent hover:text-foreground">Forget</button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </details>
       </div>
     </section>
   )

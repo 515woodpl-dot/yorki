@@ -1,16 +1,8 @@
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
-const fs = require('node:fs')
-const vm = require('node:vm')
-const ts = require('typescript')
 
-// Load the TypeScript parser directly (it has no imports).
-const source = ts.transpileModule(fs.readFileSync('src/lib/quick-add/parse.ts', 'utf8'), {
-  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
-}).outputText
-const mod = { exports: {} }
-vm.runInNewContext(source, { module: mod, exports: mod.exports, require })
-const { parseQuickAdd } = mod.exports
+const { load } = require('./load-ts.cjs')
+const { parseQuickAdd } = load('src/lib/quick-add/parse.ts')
 
 // Tuesday 17 November 2026, 10:00 local time.
 const NOW = new Date(2026, 10, 17, 10, 0, 0)
@@ -226,7 +218,7 @@ test('everything together', () => {
     { title: 'Call the supplier', ids: ['ana'], due: '2026-11-20T14:00:00', priority: 'urgent', labels: ['vendors'] },
   )
   assert.equal(card.description, 'Ana should call the supplier by Friday at 2pm, urgent #vendors')
-  assert.deepEqual(card.found, { assignees: ['Ana Reyes'], date: 'by Friday at 2pm', priority: 'urgent' })
+  assert.deepEqual(card.found, { assignees: ['Ana Reyes'], date: 'by Friday at 2pm', priority: 'urgent', guesses: [] })
 })
 
 // ─── Several cards ───────────────────────────────────────────────────────────

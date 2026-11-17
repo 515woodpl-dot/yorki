@@ -94,7 +94,51 @@ const badge = async (page) => (await page.locator('header button[aria-label^="No
   check('staff: card created', await until(async () => (await card(mia, 'Pay the electric bill').count()) > 0))
   check('live: admin sees the staff card', await until(async () => (await card(ana, 'Pay the electric bill').count()) > 0))
 
-  // 6 · Phone layout.
+  // 6 · Spanish, with the follow-up deadline.
+  await box(ana).fill('Quiero que @Mia trabaje en este proyecto. Ella tiene hasta el 5 de diciembre de 2030')
+  await until(async () => (await previewTitles(ana)).length === 1)
+  check('es: title in the infinitive', (await previewTitles(ana))[0] === 'Trabajar en este proyecto', `(${JSON.stringify(await previewTitles(ana))})`)
+  check('es: Mia assigned', (await qa(ana).getByText('Mia Porter').count()) > 0)
+  check('es: deadline from "Ella tiene hasta…"', (await qa(ana).getByLabel('Due date', { exact: true }).inputValue()) === '2030-12-05')
+
+  // 7 · Typos are understood and shown.
+  await box(ana).fill('pay the rent tomorow, urjent')
+  await until(async () => (await previewTitles(ana)).length === 1)
+  check('typo: date understood', (await qa(ana).getByLabel('Due date', { exact: true }).inputValue()) !== '')
+  check('typo: priority understood', (await qa(ana).getByLabel('Priority', { exact: true }).inputValue()) === 'urgent')
+  check('typo: the guess is shown', (await qa(ana).getByText(/“tomorow” → tomorrow/).count()) > 0)
+
+  // 8 · Learning a nickname: ask → pick → remembered next time → can be forgotten.
+  await box(ana).fill('Jimmy should sweep the shop')
+  check('learn: unknown name is asked about', await until(async () => (await qa(ana).getByText(/Who is “Jimmy”/).count()) > 0))
+  await qa(ana).getByLabel('Assign someone').selectOption({ label: 'Mia Porter' })
+  await qa(ana).getByRole('button', { name: 'Create card' }).click()
+  check('learn: tells you what it learned', await until(async () => (await toasts(ana)).some(t => /Learned: “jimmy” means Mia Porter/.test(t))))
+  await box(ana).fill('Jimmy should mop the floor')
+  check('learn: next time Jimmy = Mia', await until(async () => (await qa(ana).getByText('Mia Porter').count()) > 0 && (await qa(ana).getByText(/Who is/).count()) === 0))
+  check('learn: shown as remembered', (await qa(ana).getByText(/remembered: Jimmy = Mia Porter/).count()) > 0)
+  await qa(ana).getByText(/What Quick add has learned \(1\)/).click()
+  check('learn: listed under "What Quick add has learned"', (await qa(ana).getByText(/“jimmy” →/).count()) > 0)
+  await qa(ana).getByRole('button', { name: 'Forget jimmy' }).click()
+  check('learn: can be forgotten', await until(async () => (await qa(ana).getByText(/Who is “Jimmy”/).count()) > 0))
+  await box(ana).fill('')
+
+  // 9 · Suggestions from past cards: after a few "leak" cards for Mia, it suggests Mia.
+  await box(ana).fill('Mia should fix the leak in unit 1, urgent\nMia should fix the leak in unit 2, urgent\nMia should check the leak in unit 3, urgent')
+  await until(async () => (await previewTitles(ana)).length === 3)
+  await qa(ana).getByRole('button', { name: 'Create 3 cards' }).click()
+  await until(async () => (await card(ana, 'Fix the leak in unit 2').count()) > 0)
+  await ana.waitForTimeout(800) // knowledge reloads after creating
+  await box(ana).fill('fix the leak in the kitchen')
+  check('suggest: offers Mia from past cards', await until(async () => (await qa(ana).getByRole('button', { name: /^Accept suggestion: Mia Porter/ }).count()) > 0))
+  check('suggest: not applied on its own', (await qa(ana).getByRole('button', { name: 'Unassign Mia Porter' }).count()) === 0)
+  await qa(ana).getByRole('button', { name: /^Accept suggestion: Mia Porter/ }).click()
+  check('suggest: one click applies it', (await qa(ana).getByRole('button', { name: 'Unassign Mia Porter' }).count()) === 1)
+  check('suggest: urgency suggested too', (await qa(ana).getByRole('button', { name: /^Accept suggestion: Urgent/ }).count()) > 0)
+  await ana.screenshot({ path: (process.env.SP || '/tmp') + '/quick-add-suggest.png' })
+  await box(ana).fill('')
+
+  // 10 · Phone layout.
   const phone = await login(browser, 'sess-ana', { width: 390, height: 844 })
   await box(phone).fill('Ana should call the supplier by Friday, urgent')
   await until(async () => (await previewTitles(phone)).length === 1)
