@@ -1,5 +1,9 @@
 services:
   yorki:
+    # Fast path: the image is built by GitHub (see .github/workflows/docker-image.yml) and only
+    # downloaded here:  docker compose pull && docker compose up -d
+    # Slow path (build on this machine):  docker compose up -d --build
+    image: ghcr.io/515woodpl-dot/yorki:latest
     build:
       context: .
       dockerfile: Dockerfile

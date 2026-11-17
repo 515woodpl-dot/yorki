@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # ─────────────────────────────────────────────────────────────────────────────
 # Yorki — Production Dockerfile
 # Build dependencies stay out of the runtime image to keep deployments small.
@@ -14,7 +15,15 @@ FROM base AS dependencies
 RUN apk add --no-cache python3 make g++
 
 COPY package.json package-lock.json* ./
-RUN npm ci --ignore-scripts && npm rebuild better-sqlite3
+# The npm download cache is kept between builds, so a changed dependency only fetches what is new.
+RUN --mount=type=cache,target=/root/.npm npm ci --ignore-scripts && npm rebuild better-sqlite3
+
+# Production-only dependencies are installed in their own stage. Docker builds it at the same time
+# as `build`, which replaces the slow `npm prune` step.
+FROM base AS prod-deps
+RUN apk add --no-cache python3 make g++
+COPY package.json package-lock.json* ./
+RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev --ignore-scripts && npm rebuild better-sqlite3
 
 FROM dependencies AS build
 
@@ -23,8 +32,8 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 
-RUN NODE_OPTIONS=--max-old-space-size=2048 npm run build
-RUN npm prune --omit=dev
+# .next/cache is kept between builds: an unchanged page is not compiled again.
+RUN --mount=type=cache,target=/app/.next/cache NODE_OPTIONS=--max-old-space-size=2048 npm run build
 
 FROM base AS runner
 
@@ -36,7 +45,7 @@ RUN addgroup --system --gid 1001 nodejs && \
     mkdir -p /app/data /app/public/uploads
 
 COPY --from=build --chown=nextjs:nodejs /app/package.json ./
-COPY --from=build --chown=nextjs:nodejs /app/node_modules ./node_modules
+COPY --from=prod-deps --chown=nextjs:nodejs /app/node_modules ./node_modules
 COPY --from=build --chown=nextjs:nodejs /app/.next ./.next
 COPY --from=build --chown=nextjs:nodejs /app/public ./public
 
