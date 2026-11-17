@@ -48,7 +48,7 @@ export async function verifyPassword(plain: string, hash: string): Promise<boole
  * cookie received over plain http (e.g. http://192.168.x.x:3000 or an http Tailscale/LAN address),
  * which made sign-in appear to do nothing. COOKIE_SECURE=true/false overrides the detection.
  */
-async function useSecureCookie(): Promise<boolean> {
+async function shouldUseSecureCookie(): Promise<boolean> {
   const forced = process.env.COOKIE_SECURE
   if (forced === 'true') return true
   if (forced === 'false') return false
@@ -84,7 +84,7 @@ export async function createSession(userId: string): Promise<string> {
     sameSite: 'lax',
     path:     '/',
     expires,
-    secure:   await useSecureCookie(),
+    secure:   await shouldUseSecureCookie(),
   })
 
   return sessionId
@@ -161,7 +161,7 @@ export async function refreshSession(): Promise<boolean> {
       sameSite: 'lax',
       path: '/',
       expires,
-      secure: await useSecureCookie(),
+      secure: await shouldUseSecureCookie(),
     })
     return true
   } catch {

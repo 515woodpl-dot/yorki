@@ -5,9 +5,9 @@ import BrandLogo from '@/components/brand/BrandLogo'
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ reason?: string }>
+  searchParams: Promise<{ reason?: string; error?: string; email?: string }>
 }) {
-  const { reason } = await searchParams
+  const { reason, error, email } = await searchParams
   const timedOut = reason === 'timeout'
 
   return (
@@ -37,7 +37,7 @@ export default async function LoginPage({
               Your session ended after 10 minutes of inactivity. Please sign in again.
             </p>
           )}
-          <LoginForm />
+          <LoginForm error={error} email={email} />
         </div>
 
         <p className="text-center text-[11px] text-muted-foreground/50 mt-6">

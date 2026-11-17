@@ -41,5 +41,6 @@ start; echo "== collaboration";            NODE_PATH="$PLAYWRIGHT_PATH" node "$R
 start; echo "== mentions & notifications"; SP="$TMP" NODE_PATH="$PLAYWRIGHT_PATH" node "$ROOT/tests/e2e/notifications.js"
 start; echo "== quick add (chat box)";      SP="$TMP" NODE_PATH="$PLAYWRIGHT_PATH" node "$ROOT/tests/e2e/quick-add.js"
 start; echo "== push notifications";        SP="$TMP" NODE_PATH="$PLAYWRIGHT_PATH" node "$ROOT/tests/e2e/push.js"
+start; echo "== sign in / sign out / users";   SP="$TMP" NODE_PATH="$PLAYWRIGHT_PATH" node "$ROOT/tests/e2e/auth-admin.js"
 start; echo "== PWA + mobile";              SP="$TMP" NODE_PATH="$PLAYWRIGHT_PATH" node "$ROOT/tests/e2e/pwa-mobile.js"
 echo "== healthcheck"; BASE_URL="http://127.0.0.1:${PORT}" "$ROOT/scripts/healthcheck.sh"
