@@ -1,3 +1,4 @@
+import { canSeeTask } from '@/lib/category-access'
 /**
  * POST /api/board/presence — "I have this card open" heartbeat.
  *
@@ -38,7 +39,7 @@ export async function POST(request: Request) {
 
   const task = await getTaskById(body.taskId)
   const isAdmin = user.role === 'admin' || user.role === 'super_admin'
-  if (!task || !(isAdmin || task.submitted_by === user.id || isTaskAssignedToUser(task, user.id))) {
+  if (!task || !(await canSeeTask(user, task)) || !(isAdmin || task.submitted_by === user.id || isTaskAssignedToUser(task, user.id))) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 

@@ -12,9 +12,11 @@ import {
 } from 'lucide-react'
 import { createTask } from '@/lib/actions/tasks'
 import { cn, getCurrentDateInAppTimeZone } from '@/lib/utils'
-import type { Priority, UserProfile } from '@/lib/types'
+import AppSelect from '@/components/system/AppSelect'
+import type { Column, Priority, UserProfile } from '@/lib/types'
 
 const schema = z.object({
+  column_id: z.string().min(1, 'Choose a category'),
   title:       z.string().min(1, 'Title is required').max(500, 'Title too long'),
   description: z.string().max(10000).optional(),
   priority:    z.enum(['low', 'normal', 'high', 'urgent']),
@@ -27,7 +29,7 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>
 
 interface ChecklistItem { id: string; label: string; checked: boolean }
-interface SubmitFormProps { staffUsers: UserProfile[] }
+interface SubmitFormProps { staffUsers: UserProfile[]; categories: Column[] }
 
 const priorities: { value: Priority; label: string; color: string; dot: string }[] = [
   { value: 'low',    label: 'Low',    color: 'border-gray-300  text-gray-600  data-[sel=true]:bg-gray-100  data-[sel=true]:border-gray-400',  dot: 'bg-gray-400' },
@@ -39,6 +41,7 @@ const priorities: { value: Priority; label: string; color: string; dot: string }
 interface UploadedFile { file: File; preview: string | null }
 
 const APP_BASE_PATH = process.env.NODE_ENV === 'production' ? '/task' : ''
+const PREVIEW_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp'])
 const TIME_SLOTS = [
   { value: '', label: 'No time slot' },
   ...Array.from({ length: 33 }, (_, index) => {
@@ -68,7 +71,7 @@ function createClientId() {
   return `item-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
-export default function SubmitForm({ staffUsers }: SubmitFormProps) {
+export default function SubmitForm({ staffUsers, categories }: SubmitFormProps) {
   const router = useRouter()
   const [files,      setFiles]      = useState<UploadedFile[]>([])
   const [checklist,  setChecklist]  = useState<ChecklistItem[]>([])
@@ -78,7 +81,7 @@ export default function SubmitForm({ staffUsers }: SubmitFormProps) {
 
   const { register, handleSubmit, watch, setValue, reset, formState: { errors } } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { priority: 'normal', send_to_calendar: false, time_slot: '' },
+    defaultValues: { column_id: categories.find(category => category.is_default)?.id ?? categories[0]?.id ?? '', priority: 'normal', send_to_calendar: false, time_slot: '' },
   })
 
   const selectedPriority = watch('priority')
@@ -105,7 +108,7 @@ export default function SubmitForm({ staffUsers }: SubmitFormProps) {
     const newFiles = Array.from(e.target.files ?? [])
     for (const f of newFiles) {
       if (f.size > 10 * 1024 * 1024) { toast.error(`${f.name} is too large (max 10MB)`); continue }
-      const preview = f.type.startsWith('image/') ? URL.createObjectURL(f) : null
+      const preview = PREVIEW_IMAGE_TYPES.has(f.type) ? URL.createObjectURL(f) : null
       setFiles(prev => [...prev, { file: f, preview }])
     }
     e.target.value = ''
@@ -132,6 +135,7 @@ export default function SubmitForm({ staffUsers }: SubmitFormProps) {
       const dueDateValue = combineDueDateAndTime(values.due_date, values.time_slot)
       const result = await createTask({
         title:       values.title,
+        column_id: values.column_id,
         description: [values.description, values.notes].filter(Boolean).join('\n\n---\n\n') || undefined,
         assigned_to: selectedAssigneeIds,
         priority:    values.priority,
@@ -183,6 +187,12 @@ export default function SubmitForm({ staffUsers }: SubmitFormProps) {
         <div className="space-y-4">
       <section className="space-y-4 rounded-2xl border border-border/70 bg-card p-5 shadow-sm sm:p-6">
       <div className="flex items-start gap-4 border-b border-border/70 pb-5"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-100 text-sm font-bold text-blue-700 dark:bg-blue-950 dark:text-blue-300"><Type size={17} aria-hidden="true" /></span><div><h2 className="text-lg font-semibold tracking-tight">The essentials</h2><p className="mt-1 text-sm text-muted-foreground">Start with the big picture. You can add the details below.</p></div></div>
+
+      <div className="space-y-1.5">
+        <label htmlFor="task-category" className="text-sm font-medium">Category <span className="text-destructive">*</span></label>
+        <AppSelect id="task-category" value={watch('column_id')} onValueChange={value => setValue('column_id', value, { shouldValidate: true })} options={[{ value: '', label: 'Choose a category' }, ...categories.map(category => ({ value: category.id, label: category.name }))]} className={cn(inputClass, 'h-11')} />
+        {errors.column_id && <p className="text-xs text-destructive">{errors.column_id.message}</p>}
+      </div>
 
       {/* Title */}
       <div className="space-y-1.5">
@@ -323,17 +333,7 @@ export default function SubmitForm({ staffUsers }: SubmitFormProps) {
           Time slot
           <span className="text-xs text-muted-foreground font-normal">(optional)</span>
         </label>
-        <select
-          {...register('time_slot')}
-          className={cn(inputClass, 'h-11')}
-          defaultValue=""
-        >
-          {TIME_SLOTS.map((slot) => (
-            <option key={slot.value || 'none'} value={slot.value}>
-              {slot.label}
-            </option>
-          ))}
-        </select>
+        <AppSelect ariaLabel="Time slot" value={watch('time_slot') ?? ''} onValueChange={value => setValue('time_slot', value, { shouldValidate: true })} options={TIME_SLOTS.map(slot => ({ value: slot.value, label: slot.label }))} className={cn(inputClass, 'h-11')} />
         <p className="text-xs text-muted-foreground">
           Choose a time only when the task should land on the calendar at a specific hour.
         </p>
@@ -460,7 +460,6 @@ export default function SubmitForm({ staffUsers }: SubmitFormProps) {
           </ul>
         )}
         <input ref={fileInputRef} type="file" multiple
-          accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv"
           onChange={handleFileChange} className="hidden" />
         <button type="button" onClick={() => fileInputRef.current?.click()}
           className={cn(

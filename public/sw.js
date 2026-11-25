@@ -18,6 +18,7 @@ const MAX_STATIC_ENTRIES = 120
 const scope = new URL(self.registration.scope).pathname.replace(/\/$/, '') // "/task" in production
 const OFFLINE_URL = `${scope}/offline.html`
 const PRECACHE = [OFFLINE_URL, `${scope}/icons/icon-192.png`, `${scope}/icons/icon-512.png`, `${scope}/icons/badge-96.png`, `${scope}/Yorki.png`, `${scope}/Yorki-light.png`]
+const NAVIGATION_TIMEOUT_MS = 15_000
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(STATIC_CACHE).then((cache) => cache.addAll(PRECACHE)))
@@ -62,7 +63,13 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       (async () => {
         try {
-          const response = await fetch(request)
+          // Mobile PWAs can resume with a half-open connection after the OS suspends them.
+          // Bound navigation so that state becomes a real offline screen, never a blank shell.
+          const controller = new AbortController()
+          const timeout = setTimeout(() => controller.abort(), NAVIGATION_TIMEOUT_MS)
+          let response
+          try { response = await fetch(request, { signal: controller.signal }) }
+          finally { clearTimeout(timeout) }
           if ([502, 503, 504].includes(response.status)) throw new Error(`upstream ${response.status}`)
           return response
         } catch {

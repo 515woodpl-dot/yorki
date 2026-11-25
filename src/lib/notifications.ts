@@ -118,8 +118,8 @@ function participantIds(task: Task) {
 }
 
 /**
- * Called after a comment is saved. Returns the people who were @mentioned
- * (so the caller can email them).
+ * Called after a comment is saved. Return each recipient group so the caller
+ * can send one email per person without duplicating mention emails.
  */
 export function notifyForComment(input: {
   task: Task
@@ -127,7 +127,7 @@ export function notifyForComment(input: {
   body: string
   actorId: string
   isInternal: boolean
-}): UserProfile[] {
+}): { mentioned: UserProfile[]; others: UserProfile[] } {
   const mentioned = eligibleRecipients(input.task, parseMentionIds(input.body), input.actorId, input.isInternal)
   const mentionedIds = new Set(mentioned.map((user) => user.id))
   const others = eligibleRecipients(input.task, participantIds(input.task), input.actorId, input.isInternal)
@@ -138,7 +138,7 @@ export function notifyForComment(input: {
     ...mentioned.map((user) => ({ userId: user.id, actorId: input.actorId, taskId: input.task.id, commentId: input.commentId, type: 'mention' as const, snippet })),
     ...others.map((user) => ({ userId: user.id, actorId: input.actorId, taskId: input.task.id, commentId: input.commentId, type: 'comment' as const, snippet })),
   ])
-  return mentioned
+  return { mentioned, others }
 }
 
 export function notifyAssigned(task: Task, newAssigneeIds: string[], actorId: string) {

@@ -180,6 +180,8 @@ function migrate(db: Database.Database) {
   `)
 
   ensureColumn(db, 'tasks', 'google_calendar_event_id', 'TEXT')
+  ensureColumn(db, 'attachments', 'comment_id', 'TEXT')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_attachments_comment ON attachments(comment_id)')
 
   // Seed if empty
   const boardCount = (db.prepare('SELECT COUNT(*) as n FROM boards').get() as { n: number }).n

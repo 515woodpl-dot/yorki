@@ -445,7 +445,8 @@ export async function getTaskComments(taskId: string, includeInternal = true) {
   return rows.map(row => {
     const comment = mapComment(row)
     const author  = findUser(comment.author_id) ?? fallbackUser(comment.author_id)
-    const result: CommentWithAuthor = { ...comment, author }
+    const attachments = db.prepare('SELECT * FROM attachments WHERE comment_id=? AND deleted_at IS NULL ORDER BY created_at').all(comment.id) as import('@/lib/types').Attachment[]
+    const result: CommentWithAuthor = { ...comment, author, attachments }
     return result
   })
 }
@@ -461,6 +462,16 @@ export async function createComment(taskId: string, authorId: string, body: stri
   return mapComment(row)
 }
 
+export async function updateCommentBody(commentId: string, body: string): Promise<Comment> {
+  const timestamp = now()
+  const result = getDb().prepare(`
+    UPDATE comments SET body=?, updated_at=? WHERE id=? AND deleted_at IS NULL
+  `).run(body.trim(), timestamp, commentId)
+  if (result.changes !== 1) throw new Error('Comment not found')
+  const row = getDb().prepare('SELECT * FROM comments WHERE id=?').get(commentId) as Record<string, unknown>
+  return mapComment(row)
+}
+
 export async function softDeleteComment(commentId: string): Promise<void> {
   const result = getDb().prepare('UPDATE comments SET deleted_at=?, updated_at=? WHERE id=? AND deleted_at IS NULL').run(now(), now(), commentId)
   if (result.changes !== 1) throw new Error('Comment not found')
@@ -470,7 +481,7 @@ export async function softDeleteComment(commentId: string): Promise<void> {
 
 export async function getTaskAttachments(taskId: string) {
   return getDb().prepare(`
-    SELECT * FROM attachments WHERE task_id=? AND deleted_at IS NULL ORDER BY created_at
+    SELECT * FROM attachments WHERE task_id=? AND comment_id IS NULL AND deleted_at IS NULL ORDER BY created_at
   `).all(taskId) as import('@/lib/types').Attachment[]
 }
 
@@ -480,17 +491,22 @@ export async function getAttachmentById(attachmentId: string) {
   `).get(attachmentId) as import('@/lib/types').Attachment | undefined
 }
 
+export async function getCommentById(commentId: string) {
+  return getDb().prepare('SELECT * FROM comments WHERE id=? AND deleted_at IS NULL').get(commentId) as import('@/lib/types').Comment | undefined
+}
+
 export async function createAttachment(input: {
   id?: string
+  commentId?: string | null
   taskId: string; uploadedBy: string; fileName: string
   fileSize: number; fileType: string; storagePath: string; publicUrl: string
 }): Promise<import('@/lib/types').Attachment> {
   const n  = now()
   const id = input.id ?? randomUUID()
   getDb().prepare(`
-    INSERT INTO attachments (id,task_id,uploaded_by,file_name,file_size,file_type,storage_path,public_url,created_at,deleted_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?)
-  `).run(id, input.taskId, input.uploadedBy, input.fileName, input.fileSize, input.fileType, input.storagePath, input.publicUrl, n, null)
+    INSERT INTO attachments (id,task_id,uploaded_by,file_name,file_size,file_type,storage_path,public_url,created_at,deleted_at,comment_id)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)
+  `).run(id, input.taskId, input.uploadedBy, input.fileName, input.fileSize, input.fileType, input.storagePath, input.publicUrl, n, null, input.commentId ?? null)
   return getDb().prepare('SELECT * FROM attachments WHERE id=?').get(id) as import('@/lib/types').Attachment
 }
 

@@ -4,23 +4,25 @@ import { useState, useEffect, useRef, useTransition } from 'react'
 import {
   X, CheckCircle2, Archive, Trash2, Lock, MessageSquare,
   Loader2, Send, User, Calendar, Flag, Tag, Clock, RotateCcw, Paperclip, MapPin, CheckSquare, Plus,
-  Eye, PencilLine, AlertTriangle,
+  Eye, PencilLine, AlertTriangle, LockKeyhole, UnlockKeyhole,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn, getAssignedUserIds, getPriorityConfig, formatDateTime, formatRelativeDate, getUserDisplayName, isTaskAssignedToUser, normalizeAppAssetUrl } from '@/lib/utils'
 import {
-  completeTask, archiveTask, deleteTask, reopenTask, updateTask, deleteTaskAttachment,
+  completeTask, archiveTask, deleteTask, reopenTask, updateTask, deleteTaskAttachment, setTaskLocked,
 } from '@/lib/actions/tasks'
-import { addComment, getTaskComments } from '@/lib/actions/activity'
+import { addComment, deleteComment, editComment, getTaskComments } from '@/lib/actions/activity'
 import { getMentionableUsers, markTaskSeen } from '@/lib/actions/notifications'
-import MentionTextarea, { CommentBody, encodeMentions } from './MentionTextarea'
+import MentionTextarea, { CommentBody, encodeMentions, mentionsToPlainText } from './MentionTextarea'
 import { getStaffUsers } from '@/lib/actions/settings'
 import type { ActionResult, MentionableUser, TaskWithRelations, CommentWithAuthor, SessionUser, Priority, Attachment, UserProfile, Column, TaskExpectation, TaskPresence } from '@/lib/types'
 import { reportActionFailure, useTaskPresence } from '@/lib/live/client'
 import { Avatar } from '@/components/layout/AppNav'
 import LinkifiedText from '@/components/system/LinkifiedText'
+import AppSelect from '@/components/system/AppSelect'
 
 const APP_BASE_PATH = process.env.NODE_ENV === 'production' ? '/task' : ''
+const PREVIEW_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp'])
 
 interface Props {
   task:        TaskWithRelations
@@ -90,7 +92,8 @@ export default function TaskDetailPanel({
 }: Props) {
   const isAdmin      = currentUser.role === 'admin' || currentUser.role === 'super_admin'
   const isSuperAdmin = currentUser.role === 'admin' || currentUser.role === 'super_admin'
-  const canEditDetails = isAdmin || task.submitted_by === currentUser.id || isTaskAssignedToUser(task, currentUser.id)
+  const isLocked = task.custom_fields?.locked === true
+  const canEditDetails = !isLocked && (isAdmin || task.submitted_by === currentUser.id || isTaskAssignedToUser(task, currentUser.id))
   const canCompleteTask = canEditDetails
 
   const [comments,    setComments]    = useState<CommentWithAuthor[]>([])
@@ -100,6 +103,11 @@ export default function TaskDetailPanel({
   const [staffUsers,  setStaffUsers]  = useState<UserProfile[]>([])
   const [loadingComments, setLoadingComments] = useState(true)
   const [commentBody, setCommentBody] = useState('')
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
+  const [editingCommentBody, setEditingCommentBody] = useState('')
+  const [commentActionId, setCommentActionId] = useState<string | null>(null)
+  const [commentFiles, setCommentFiles] = useState<File[]>([])
+  const commentFileInputRef = useRef<HTMLInputElement>(null)
   const [isInternal,  setIsInternal]  = useState(false)
   const [mentionCandidates, setMentionCandidates] = useState<MentionableUser[]>([])
   const [mentionPicks, setMentionPicks] = useState<MentionableUser[]>([])
@@ -137,6 +145,8 @@ export default function TaskDetailPanel({
   // Opening a different card always leaves edit mode.
   useEffect(() => {
     setIsEditingDetails(false)
+    setEditingCommentId(null)
+    setEditingCommentBody('')
     setConflictNotice(null)
     editBaseRef.current = null
   }, [task.id])
@@ -338,6 +348,15 @@ export default function TaskDetailPanel({
     })
   }
 
+  async function handleLockToggle() {
+    const result = await runWrite(() => setTaskLocked(task.id, !isLocked, { version: task.version }))
+    if (result.success) {
+      setIsEditingDetails(false)
+      onUpdate({ ...task, ...result.data })
+      toast.success(isLocked ? 'Card unlocked' : 'Card locked')
+    } else await handleFailure(result, 'Could not change card lock')
+  }
+
   async function handleMoveColumn(columnId: string) {
     if (!columnId || columnId === task.column_id) return
 
@@ -426,14 +445,29 @@ export default function TaskDetailPanel({
   }
 
   async function handleAddComment() {
-    if (!commentBody.trim()) return
+    if (!commentBody.trim() && commentFiles.length === 0) return
     startTransition(async () => {
-      const body = encodeMentions(commentBody.trim(), mentionPicks)
+      const body = encodeMentions(commentBody.trim() || 'Attached files', mentionPicks)
       const result = await runWrite(() => addComment(task.id, body, isInternal))
       if (result.success) {
+        const uploaded: Attachment[] = []
+        const failed: File[] = []
+        for (const file of commentFiles) {
+          try {
+            const data = new FormData()
+            data.append('task_id', task.id)
+            data.append('comment_id', result.data.id)
+            data.append('file', file)
+            const response = await fetch(`${APP_BASE_PATH}/api/upload`, { method: 'POST', body: data })
+            const payload = await response.json()
+            if (!response.ok) throw new Error(payload.error || 'Upload failed')
+            uploaded.push(payload.attachment as Attachment)
+          } catch { failed.push(file) }
+        }
         // Optimistically add to list
         const newComment: CommentWithAuthor = {
           ...result.data,
+          attachments: uploaded,
           author: {
             id:           currentUser.id,
             full_name:    currentUser.full_name,
@@ -449,12 +483,54 @@ export default function TaskDetailPanel({
         }
         setComments(prev => [...prev, newComment])
         setCommentBody('')
+        setCommentFiles(failed)
+        if (failed.length) toast.error(`${failed.length} file${failed.length === 1 ? '' : 's'} could not be attached. The comment was saved.`)
         setMentionPicks([])
         onUpdate({ ...task, _comment_count: task._comment_count + 1 })
       } else {
         toast.error(result.error)
       }
     })
+  }
+
+  async function handleEditComment(comment: CommentWithAuthor) {
+    const body = encodeMentions(editingCommentBody.trim(), mentionCandidates)
+    if (!body) return
+    setCommentActionId(comment.id)
+    try {
+      const result = await runWrite(() => editComment(comment.id, body))
+      if (!result.success) {
+        toast.error(result.error)
+        return
+      }
+      setComments(prev => prev.map(item => item.id === comment.id ? { ...item, ...result.data } : item))
+      setEditingCommentId(null)
+      setEditingCommentBody('')
+      toast.success('Comment updated')
+    } finally {
+      setCommentActionId(null)
+    }
+  }
+
+  async function handleDeleteComment(comment: CommentWithAuthor) {
+    if (!window.confirm('Delete this comment? This cannot be undone.')) return
+    setCommentActionId(comment.id)
+    try {
+      const result = await runWrite(() => deleteComment(comment.id))
+      if (!result.success) {
+        toast.error(result.error)
+        return
+      }
+      setComments(prev => prev.filter(item => item.id !== comment.id))
+      if (editingCommentId === comment.id) {
+        setEditingCommentId(null)
+        setEditingCommentBody('')
+      }
+      onUpdate({ ...task, _comment_count: Math.max(0, task._comment_count - 1) })
+      toast.success('Comment deleted')
+    } finally {
+      setCommentActionId(null)
+    }
   }
 
   async function handleSaveDetails() {
@@ -606,6 +682,7 @@ export default function TaskDetailPanel({
                 {priority.label}
               </span>
               <StatusBadge status={task.status} />
+              {isLocked && <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-200"><LockKeyhole size={11} />Locked</span>}
               {task.status === 'completed' && (
                 <span className="text-xs text-green-600 dark:text-green-400 font-medium">
                   ✓ Completed {formatRelativeDate(task.completed_at)}
@@ -626,6 +703,7 @@ export default function TaskDetailPanel({
             )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            {isAdmin && <button type="button" onClick={() => void handleLockToggle()} disabled={isPending} aria-label={isLocked ? 'Unlock card' : 'Lock card'} className="flex h-8 items-center gap-1 rounded-lg border border-border px-2.5 text-xs font-medium text-primary hover:bg-accent disabled:opacity-50 coarse:h-11">{isLocked ? <UnlockKeyhole size={14} /> : <LockKeyhole size={14} />}{isLocked ? 'Unlock' : 'Lock'}</button>}
             {canEditDetails && (
               <button
                 type="button"
@@ -765,27 +843,22 @@ export default function TaskDetailPanel({
             </MetaRow>
             {canEditDetails && (
               <MetaRow icon={CheckSquare} label="Move to">
-                <select
+                <AppSelect
+                  ariaLabel="Move to column"
                   value={selectedColumnId}
-                  onChange={(e) => {
-                    const nextColumnId = e.target.value
+                  onValueChange={(nextColumnId) => {
                     setSelectedColumnId(nextColumnId)
                     void handleMoveColumn(nextColumnId)
                   }}
-                  className="h-8 coarse:h-11 px-2 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-                >
-                  {columns
+                  className="h-8 rounded-lg bg-background text-sm coarse:h-11"
+                  options={columns
                     .filter((column) => !column.deleted_at)
-                    .map((column) => (
-                      <option key={column.id} value={column.id}>
-                        {column.name}{column.id === task.column_id ? ' (Current)' : ''}
-                      </option>
-                    ))}
-                </select>
+                    .map((column) => ({ value: column.id, label: `${column.name}${column.id === task.column_id ? ' (Current)' : ''}` }))}
+                />
               </MetaRow>
             )}
 
-            {isAdmin && (
+            {isAdmin && !isLocked && (
               <MetaRow icon={Flag} label="Priority">
                 <div className="flex flex-wrap gap-1.5">
                   {(['low', 'normal', 'high', 'urgent'] as Priority[]).map(p => {
@@ -835,7 +908,6 @@ export default function TaskDetailPanel({
           <input
             ref={attachmentInputRef}
             type="file"
-            accept="image/*"
             multiple
             onChange={handleAttachmentUpload}
             className="hidden"
@@ -990,11 +1062,27 @@ export default function TaskDetailPanel({
             ) : (
               <div className="space-y-4 mb-4">
                 {comments.map(comment => (
-                  <CommentItem key={comment.id} comment={comment} currentUserId={currentUser.id} />
+                  <CommentItem
+                    key={comment.id}
+                    comment={comment}
+                    currentUserId={currentUser.id}
+                    canEdit={comment.author_id === currentUser.id}
+                    canDelete={isAdmin || comment.author_id === currentUser.id}
+                    editing={editingCommentId === comment.id}
+                    editBody={editingCommentBody}
+                    busy={commentActionId === comment.id}
+                    mentionCandidates={comment.is_internal ? mentionCandidates.filter(candidate => candidate.role !== 'staff') : mentionCandidates}
+                    onEditBodyChange={setEditingCommentBody}
+                    onStartEdit={() => { setEditingCommentId(comment.id); setEditingCommentBody(mentionsToPlainText(comment.body)) }}
+                    onCancelEdit={() => { setEditingCommentId(null); setEditingCommentBody('') }}
+                    onSaveEdit={() => { void handleEditComment(comment) }}
+                    onDelete={() => { void handleDeleteComment(comment) }}
+                  />
                 ))}
               </div>
             )}
             <div className="space-y-2">
+              <input ref={commentFileInputRef} type="file" multiple className="hidden" aria-label="Comment files" onChange={event => { setCommentFiles(prev => [...prev, ...Array.from(event.target.files ?? [])]); event.target.value = '' }} />
               <div className="relative">
                 <MentionTextarea
                   value={commentBody}
@@ -1013,7 +1101,10 @@ export default function TaskDetailPanel({
                 />
               </div>
 
-              <div className="flex items-center justify-between gap-3">
+              {commentFiles.length > 0 && <div className="flex flex-wrap gap-1.5">{commentFiles.map((file, index) => <span key={`${file.name}-${index}`} className="inline-flex max-w-full items-center gap-1 rounded-lg bg-accent px-2 py-1 text-xs"><span className="truncate">{file.name}</span><button type="button" aria-label={`Remove ${file.name}`} onClick={() => setCommentFiles(prev => prev.filter((_, i) => i !== index))}><X size={13} /></button></span>)}</div>}
+
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <button type="button" onClick={() => commentFileInputRef.current?.click()} className="flex min-h-9 items-center gap-1.5 rounded-lg border border-border px-2.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"><Paperclip size={14} />Attach files</button>
                 {isAdmin && (
                   <button
                     type="button"
@@ -1035,7 +1126,7 @@ export default function TaskDetailPanel({
                   </span>
                   <button
                     onClick={handleAddComment}
-                    disabled={!commentBody.trim() || isPending}
+                    disabled={(!commentBody.trim() && commentFiles.length === 0) || isPending}
                     className={cn(
                       'flex items-center gap-1.5 h-8 coarse:h-11 px-3 coarse:px-4 rounded-lg text-sm font-medium',
                       'bg-primary text-primary-foreground',
@@ -1083,7 +1174,7 @@ export default function TaskDetailPanel({
               </button>
             )}
 
-            {isAdmin && (
+            {isAdmin && !isLocked && (
               <button
                 onClick={handleArchive}
                 disabled={isPending}
@@ -1094,7 +1185,7 @@ export default function TaskDetailPanel({
               </button>
             )}
 
-            {isSuperAdmin && (
+            {isSuperAdmin && !isLocked && (
               <button
                 onClick={handleDelete}
                 disabled={isPending}
@@ -1174,7 +1265,7 @@ function AttachmentGrid({
             className="flex h-8 coarse:h-11 items-center gap-1.5 rounded-lg border border-border px-2.5 coarse:px-4 text-xs font-medium text-foreground hover:bg-accent disabled:opacity-50"
           >
             {isUploading ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
-            {isUploading ? 'Uploading…' : 'Add image'}
+            {isUploading ? 'Uploading…' : 'Add files'}
           </button>
         )}
       </div>
@@ -1185,7 +1276,7 @@ function AttachmentGrid({
       )}
       <div className="grid grid-cols-2 gap-2">
         {items.map(att => {
-          const isImage = att.file_type?.startsWith('image/')
+          const isImage = PREVIEW_IMAGE_TYPES.has(att.file_type ?? '')
           const attachmentUrl = normalizeAppAssetUrl(att.public_url)
           return (
             <div key={att.id} className="relative">
@@ -1256,7 +1347,26 @@ function MetaRow({
   )
 }
 
-function CommentItem({ comment, currentUserId }: { comment: CommentWithAuthor; currentUserId: string }) {
+interface CommentItemProps {
+  comment: CommentWithAuthor
+  currentUserId: string
+  canEdit: boolean
+  canDelete: boolean
+  editing: boolean
+  editBody: string
+  busy: boolean
+  mentionCandidates: MentionableUser[]
+  onEditBodyChange: (body: string) => void
+  onStartEdit: () => void
+  onCancelEdit: () => void
+  onSaveEdit: () => void
+  onDelete: () => void
+}
+
+function CommentItem({
+  comment, currentUserId, canEdit, canDelete, editing, editBody, busy,
+  mentionCandidates, onEditBodyChange, onStartEdit, onCancelEdit, onSaveEdit, onDelete,
+}: CommentItemProps) {
   return (
     <div className={cn(
       'flex gap-3',
@@ -1271,12 +1381,17 @@ function CommentItem({ comment, currentUserId }: { comment: CommentWithAuthor; c
           <span className="text-xs text-muted-foreground">
             {formatRelativeDate(comment.created_at)}
           </span>
+          {comment.updated_at !== comment.created_at && <span className="text-[10px] text-muted-foreground">Edited</span>}
           {comment.is_internal && (
             <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 font-medium">
               <Lock size={10} />
               Internal
             </span>
           )}
+          {(canEdit || canDelete) && !editing && <span className="ml-auto flex items-center gap-1">
+            {canEdit && <button type="button" onClick={onStartEdit} disabled={busy} aria-label="Edit comment" className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"><PencilLine size={13} /></button>}
+            {canDelete && <button type="button" onClick={onDelete} disabled={busy} aria-label="Delete comment" className="rounded-md p-1.5 text-muted-foreground hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:hover:bg-red-950/30"><Trash2 size={13} /></button>}
+          </span>}
         </div>
         <div className={cn(
           'text-sm leading-relaxed rounded-xl px-3 py-2',
@@ -1284,7 +1399,24 @@ function CommentItem({ comment, currentUserId }: { comment: CommentWithAuthor; c
             ? 'bg-amber-50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200 border border-amber-200 dark:border-amber-800'
             : 'bg-accent text-foreground'
         )}>
-          <CommentBody body={comment.body} currentUserId={currentUserId} />
+          {editing ? <div className="space-y-2">
+            <MentionTextarea
+              value={editBody}
+              onChange={onEditBodyChange}
+              candidates={mentionCandidates}
+              onPick={() => {}}
+              onSubmit={onSaveEdit}
+              rows={3}
+              disabled={busy}
+              ariaLabel="Edit comment"
+              className="w-full resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
+            />
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={onCancelEdit} disabled={busy} className="min-h-9 rounded-lg px-3 text-xs font-medium text-muted-foreground hover:bg-accent disabled:opacity-50">Cancel</button>
+              <button type="button" onClick={onSaveEdit} disabled={busy || !editBody.trim()} className="flex min-h-9 items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground disabled:opacity-50">{busy && <Loader2 size={13} className="animate-spin" />}Save</button>
+            </div>
+          </div> : <CommentBody body={comment.body} currentUserId={currentUserId} />}
+          {(comment.attachments?.length ?? 0) > 0 && <div className="mt-2 flex flex-wrap gap-2">{comment.attachments?.map(attachment => <a key={attachment.id} href={normalizeAppAssetUrl(attachment.public_url ?? `/api/attachments/${attachment.id}`)} target="_blank" rel="noopener noreferrer" className="flex max-w-full items-center gap-2 rounded-lg border border-border bg-card px-2 py-1.5 text-xs text-foreground hover:border-primary/50">{PREVIEW_IMAGE_TYPES.has(attachment.file_type ?? '') ? <img src={normalizeAppAssetUrl(attachment.public_url ?? `/api/attachments/${attachment.id}`)} alt="" className="h-10 w-10 rounded object-cover" /> : <Paperclip size={14} className="shrink-0" />}<span className="max-w-[180px] truncate">{attachment.file_name}</span></a>)}</div>}
         </div>
       </div>
     </div>

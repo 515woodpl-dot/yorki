@@ -10,6 +10,7 @@ import { forgetQuickAdd, getQuickAddKnowledge, rememberQuickAdd } from '@/lib/ac
 import { parseQuickAdd, type QuickPriority } from '@/lib/quick-add/parse'
 import { lessonsFromEdit, type HistoryModel, type QuickAddLesson, type QuickAddMemory } from '@/lib/quick-add/learn'
 import MentionTextarea from '@/components/tasks/MentionTextarea'
+import AppSelect from '@/components/system/AppSelect'
 import { cn } from '@/lib/utils'
 import type { MentionableUser, UserRole } from '@/lib/types'
 
@@ -84,6 +85,7 @@ export default function QuickAdd({ people, currentUserId, isAdmin = false, onCre
   const [busy, setBusy] = useState(false)
   const [state, setState] = useState<EditState>({ key: '', edits: {}, removed: [] })
   const [knowledge, setKnowledge] = useState<Knowledge | null>(null)
+  const [expanded, setExpanded] = useState(false)
 
   const loadKnowledge = useCallback(() => {
     getQuickAddKnowledge().then(setKnowledge).catch(() => { /* works without it */ })
@@ -186,6 +188,7 @@ export default function QuickAdd({ people, currentUserId, isAdmin = false, onCre
     }
     if (failed.length === 0) {
       setText('')
+      setExpanded(false)
     } else {
       toast.error(`${failed.length} not created — “${failed[0].title}”: ${failed[0].error}`, { duration: 9000 })
       // Keep only what failed, so pressing Enter again can't duplicate the ones that worked.
@@ -225,13 +228,21 @@ export default function QuickAdd({ people, currentUserId, isAdmin = false, onCre
   const memory = knowledge?.memory
   const learnedCount = (memory?.aliases.length ?? 0) + Object.keys(memory?.prefs ?? {}).length
 
+  if (!expanded) return (
+    <button type="button" onClick={() => setExpanded(true)} aria-label="Open quick add" aria-expanded={false} className="inline-flex h-11 w-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-border bg-card text-sm font-semibold text-foreground transition-colors hover:border-primary/40 hover:bg-accent/30 sm:w-auto sm:px-3">
+      <Sparkles size={16} className="shrink-0 text-primary" aria-hidden="true" />
+      <span className="hidden sm:inline">Quick add</span>
+    </button>
+  )
+
   return (
-    <section aria-label="Quick add" className="mb-6 rounded-2xl border border-border/70 bg-card p-4 shadow-sm sm:p-5">
+    <section aria-label="Quick add" className="order-last w-full rounded-2xl border border-border/70 bg-card p-4 shadow-sm sm:p-5">
       <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1">
         <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
           <Sparkles size={16} aria-hidden="true" />
         </span>
         <h2 className="text-sm font-semibold text-foreground">Quick add</h2>
+        <button type="button" onClick={() => setExpanded(false)} aria-label="Close quick add" className="ml-auto flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground"><X size={16} /></button>
         <p className="text-xs text-muted-foreground">
           Type it the way you would say it — in English or Spanish. Names, dates and urgency are picked out, and it learns from the team’s corrections.
         </p>
@@ -314,17 +325,7 @@ export default function QuickAdd({ people, currentUserId, isAdmin = false, onCre
                       </button>
                     </span>
                   ))}
-                  {available.length > 0 && (
-                    <select
-                      aria-label="Assign someone"
-                      value=""
-                      onChange={(event) => event.target.value && patch(card.index, { assigneeIds: [...card.assigneeIds, event.target.value] })}
-                      className={cn(fieldClass, 'max-w-[9.5rem]')}
-                    >
-                      <option value="">{card.assigneeIds.length ? '+ Add person' : 'Assign to…'}</option>
-                      {available.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                    </select>
-                  )}
+                  {available.length > 0 && <AppSelect ariaLabel="Assign someone" value="" onValueChange={(id) => id && patch(card.index, { assigneeIds: [...card.assigneeIds, id] })} options={available.map(p => ({ value: p.id, label: p.name }))} placeholder={card.assigneeIds.length ? '+ Add person' : 'Assign to…'} className={cn(fieldClass, 'max-w-[9.5rem]')} />}
 
                   <span className="relative inline-flex items-center">
                     <CalendarDays size={13} aria-hidden="true" className="pointer-events-none absolute left-2 text-muted-foreground" />
@@ -346,14 +347,7 @@ export default function QuickAdd({ people, currentUserId, isAdmin = false, onCre
                   />
                   <span className="relative inline-flex items-center">
                     <Flag size={13} aria-hidden="true" className="pointer-events-none absolute left-2 text-muted-foreground" />
-                    <select
-                      aria-label="Priority"
-                      value={card.priority}
-                      onChange={(event) => patch(card.index, { priority: event.target.value as QuickPriority })}
-                      className={cn(fieldClass, 'pl-7 font-medium', PRIORITY_STYLES[card.priority])}
-                    >
-                      {PRIORITIES.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
-                    </select>
+                    <AppSelect ariaLabel="Priority" value={card.priority} onValueChange={(value) => patch(card.index, { priority: value as QuickPriority })} options={PRIORITIES} className={cn(fieldClass, 'pl-7 font-medium', PRIORITY_STYLES[card.priority])} />
                   </span>
                   {card.labels.map((label) => (
                     <span key={label} className="inline-flex h-10 items-center gap-1 rounded-lg bg-accent pl-2.5 pr-0.5 text-xs text-muted-foreground">

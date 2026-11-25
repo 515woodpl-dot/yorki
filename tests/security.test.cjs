@@ -19,6 +19,7 @@ function inviteFixture() {
   const exports = {}
   vm.runInNewContext(source, { exports, process, require(name) {
     if (name === '@/lib/db') return { getDb: () => db }
+    if (name === '@/lib/actions/email') return { sendInviteEmail: async () => {} }
     if (name === '@/lib/auth') return {
       requireRole: async () => { if (!authorized) throw new Error('Access denied'); return { role: 'admin' } },
       hashPassword: async (password) => { await new Promise(resolve => setImmediate(resolve)); return `hashed:${password}` },
@@ -165,6 +166,7 @@ test('staff board excludes unrelated tasks and internal notes; edits preserve as
   }
   const actions = loadTs('src/lib/actions/tasks.ts', {
     'next/cache': { revalidatePath() {} },
+    '@/lib/category-access': { canSeeCategory: async () => true, canSeeTask: async () => true },
     '@/lib/auth': { requireRole: async () => ({ id: 'staff', role: 'staff' }) },
     '@/lib/local-data': data,
     './email': {},
@@ -273,6 +275,7 @@ test('archiving revokes public sharing and lifecycle actions reject invalid repl
   ]
   const actions = loadTs('src/lib/actions/tasks.ts', {
     'next/cache': { revalidatePath() {} },
+    '@/lib/category-access': { canSeeCategory: async () => true, canSeeTask: async () => true },
     '@/lib/auth': { requireRole: async () => ({ id: 'admin', role: 'super_admin', email: 'admin@example.com' }) },
     '@/lib/local-data': {
       DEFAULT_BOARD_ID: 'board', getTaskById: async () => task, getTaskByShareToken: async token => task.custom_fields.share_token === token ? task : null,
@@ -302,6 +305,7 @@ test('task actions reject blank or corrupt values before writing', async () => {
   const task = { id: 't', board_id: 'board', column_id: 'inbox', status: 'new', submitted_by: 'admin', assigned_to: null, custom_fields: {} }
   const actions = loadTs('src/lib/actions/tasks.ts', {
     'next/cache': { revalidatePath() {} },
+    '@/lib/category-access': { canSeeCategory: async () => true, canSeeTask: async () => true },
     '@/lib/auth': { requireRole: async () => ({ id: 'admin', role: 'super_admin' }) },
     '@/lib/local-data': {
       DEFAULT_BOARD_ID: 'board', getTaskById: async () => task,

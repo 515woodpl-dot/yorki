@@ -7,6 +7,7 @@ import { startInstallCapture } from './install-store'
 
 const BASE_PATH = process.env.NODE_ENV === 'production' ? '/task' : ''
 const UPDATE_CHECK_MS = 60 * 60 * 1000
+const LONG_SUSPEND_MS = 5 * 60 * 1000
 
 /**
  * Registers the service worker (production only) and offers updates.
@@ -33,6 +34,7 @@ export function PwaRegistrar() {
 
     let reloading = false
     let userAsked = false
+    let hiddenAt: number | null = document.visibilityState === 'hidden' ? Date.now() : null
     const onControllerChange = () => {
       // Only reload when the person asked for the update (not on the very first install).
       if (userAsked && !reloading) { reloading = true; window.location.reload() }
@@ -57,17 +59,55 @@ export function PwaRegistrar() {
       .catch(() => { /* never let this affect the app */ })
 
     // Installed apps can stay open for days: look for updates now and then, and when reopened.
-    const check = () => { registration?.update().catch(() => {}) }
+    const check = async () => {
+      try {
+        await registration?.update()
+        if (registration?.waiting && navigator.serviceWorker.controller) setWaiting(registration.waiting)
+      } catch { /* offline or waking up; the next check retries */ }
+    }
+    const forceRefresh = async () => {
+      try {
+        const reg = registration ?? await navigator.serviceWorker.getRegistration(`${BASE_PATH}/`)
+        await reg?.update()
+        if (reg?.waiting) {
+          userAsked = true
+          reg.waiting.postMessage({ type: 'SKIP_WAITING' })
+          return
+        }
+      } catch { /* a normal reload still fetches the current app */ }
+      window.location.reload()
+    }
+    window.addEventListener('yorki:force-refresh', forceRefresh)
     const timer = window.setInterval(check, UPDATE_CHECK_MS)
-    const onVisible = () => { if (document.visibilityState === 'visible') check() }
+    const onVisible = () => {
+      if (document.visibilityState === 'hidden') {
+        hiddenAt = Date.now()
+        return
+      }
+      const wasSuspended = hiddenAt !== null && Date.now() - hiddenAt >= LONG_SUSPEND_MS
+      hiddenAt = null
+      void check()
+      // Revalidate server components after the OS has frozen the installed app for a while.
+      // This repairs stale/blank restored views without throwing away the current URL.
+      if (wasSuspended && navigator.onLine) router.refresh()
+    }
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted && navigator.onLine) {
+        void check()
+        router.refresh()
+      }
+    }
     document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('pageshow', onPageShow)
 
     return () => {
       navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange)
       document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('pageshow', onPageShow)
+      window.removeEventListener('yorki:force-refresh', forceRefresh)
       window.clearInterval(timer)
     }
-  }, [])
+  }, [router])
 
   if (!waiting) return null
   return (

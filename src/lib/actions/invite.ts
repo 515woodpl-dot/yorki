@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto'
 import { getDb } from '@/lib/db'
 import { hashPassword } from '@/lib/auth'
 import { requireRole } from '@/lib/auth'
+import { sendInviteEmail } from '@/lib/actions/email'
 import type { ActionResult } from '@/lib/types'
 
 const INVITE_HOURS = 48
@@ -113,11 +114,20 @@ export async function acceptInvite(
 
 // ─── Resend invite (admin) ────────────────────────────────────────────────────
 
-export async function resendInvite(userId: string): Promise<ActionResult<{ url: string }>> {
+export async function resendInvite(userId: string): Promise<ActionResult> {
   try {
-    await requireRole('admin', 'super_admin')
+    const actor = await requireRole('admin', 'super_admin')
+    const target = getDb().prepare('SELECT email, full_name, role FROM users WHERE id = ?').get(userId) as {
+      email: string | null; full_name: string | null; role: string
+    } | undefined
+    if (!target?.email) throw new Error('User email not found.')
+    if (target.role === 'super_admin' && actor.role !== 'super_admin') {
+      throw new Error('Only a super admin can reset this account.')
+    }
     const { url } = await createInvite(userId)
-    return { success: true, data: { url } }
+    const delivery = await sendInviteEmail(target.email, target.full_name ?? target.email, target.role, url)
+    if (!delivery.delivered) return { success: false, error: delivery.error ?? 'The invitation email could not be sent.' }
+    return { success: true, data: undefined }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Unknown error' }
   }

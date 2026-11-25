@@ -12,9 +12,14 @@ interface Props {
   onTaskClick: (task: TaskWithRelations) => void
   /** Other people's presence, keyed by task id. */
   presenceByTask?: Map<string, TaskPresence[]>
+  getSwipeActions?: (task: TaskWithRelations) => {
+    onComplete?: () => void
+    onDelete?: () => void
+    busy?: boolean
+  }
 }
 
-export default function BoardColumn({ column, currentUser, onTaskClick, presenceByTask }: Props) {
+export default function BoardColumn({ column, currentUser, onTaskClick, presenceByTask, getSwipeActions }: Props) {
   const { setNodeRef, isOver } = useDroppable({ id: column.id })
   const taskIds   = column.tasks.map(t => t.id)
   const taskCount = column.tasks.length
@@ -61,6 +66,7 @@ export default function BoardColumn({ column, currentUser, onTaskClick, presence
                 currentUser={currentUser}
                 onClick={() => onTaskClick(task)}
                 presence={presenceByTask?.get(task.id)}
+                swipeActions={getSwipeActions?.(task)}
               />
             ))}
           </div>

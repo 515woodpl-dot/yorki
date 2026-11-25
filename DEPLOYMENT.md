@@ -335,7 +335,7 @@ server {
     }
 
     location = / {
-        return 302 /task/;
+        return 302 /task;
     }
 }
 ```

@@ -175,6 +175,9 @@ function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_invites_token ON invites(token);
   `)
 
+  ensureColumn(db, 'attachments', 'comment_id', 'TEXT')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_attachments_comment ON attachments(comment_id)')
+
   const duplicateEmails = db.prepare(`
     SELECT LOWER(email) AS email, COUNT(*) AS count
     FROM users

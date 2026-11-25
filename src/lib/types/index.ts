@@ -39,6 +39,7 @@ export type ActivityAction =
   | 'task_restored'
   | 'task_deleted'
   | 'comment_added'
+  | 'comment_updated'
   | 'comment_deleted'
   | 'attachment_added'
   | 'attachment_deleted'
@@ -130,6 +131,7 @@ export interface Comment {
 export interface Attachment {
   id: string
   task_id: string
+  comment_id?: string | null
   uploaded_by: string
   file_name: string
   file_size: number | null
@@ -209,6 +211,7 @@ export interface TaskWithRelations extends Task {
 
 export interface CommentWithAuthor extends Comment {
   author: UserProfile
+  attachments?: Attachment[]
 }
 
 export interface ColumnWithTasks extends Column {
@@ -251,6 +254,7 @@ export interface CreateTaskInput {
   custom_fields?: Record<string, unknown>
   recipient_email?: string | null
   assigned_to?: string | string[] | null
+  column_id?: string
 }
 
 export interface UpdateTaskInput extends Partial<CreateTaskInput> {

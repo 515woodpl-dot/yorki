@@ -61,6 +61,44 @@ const keyToBytes = (key: string) => {
   return Uint8Array.from(atob(padded), (char) => char.charCodeAt(0))
 }
 
+function sameApplicationServerKey(subscription: PushSubscription, publicKey: string) {
+  const current = subscription.options.applicationServerKey
+  if (!current) return true // Older browsers do not expose it; keep their working subscription.
+  const expected = keyToBytes(publicKey)
+  const actual = new Uint8Array(current)
+  return actual.length === expected.length && actual.every((byte, index) => byte === expected[index])
+}
+
+async function saveBrowserSubscription(subscription: PushSubscription) {
+  const response = await fetch(`${BASE_PATH}/api/push/subscribe`, {
+    method: 'POST', headers: jsonHeaders, credentials: 'same-origin', body: JSON.stringify(subscription.toJSON()),
+  })
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}))
+    throw new Error(body.error || 'Could not save this device.')
+  }
+  return subscription.endpoint
+}
+
+/**
+ * Repair the common "enabled here, missing on the server" state after a restore, deployment,
+ * expired database row, or VAPID-key change. This never asks for permission by itself.
+ */
+export async function reconcilePushSubscription(publicKey: string): Promise<string | null> {
+  if (Notification.permission !== 'granted') return null
+  const registration = await readyRegistration()
+  if (!registration) return null
+  let subscription = await registration.pushManager.getSubscription()
+  if (subscription && !sameApplicationServerKey(subscription, publicKey)) {
+    await subscription.unsubscribe().catch(() => {})
+    subscription = null
+  }
+  if (!subscription) {
+    subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyToBytes(publicKey) })
+  }
+  return saveBrowserSubscription(subscription)
+}
+
 /** Ask permission, subscribe this device, tell the server. Throws a readable Error. */
 export async function enablePush(publicKey: string): Promise<string> {
   const permission = await Notification.requestPermission()
@@ -76,15 +114,12 @@ export async function enablePush(publicKey: string): Promise<string> {
       throw new Error('Couldn’t reach your browser’s notification service. Check your connection and try again.')
     }
   }
-  const response = await fetch(`${BASE_PATH}/api/push/subscribe`, {
-    method: 'POST', headers: jsonHeaders, credentials: 'same-origin', body: JSON.stringify(subscription.toJSON()),
-  })
-  if (!response.ok) {
+  try {
+    return await saveBrowserSubscription(subscription)
+  } catch (error) {
     await subscription.unsubscribe().catch(() => {})
-    const body = await response.json().catch(() => ({}))
-    throw new Error(body.error || 'Could not save this device.')
+    throw error
   }
-  return subscription.endpoint
 }
 
 /** Stop alerts on this device: tell the server first, then drop the browser's subscription. */

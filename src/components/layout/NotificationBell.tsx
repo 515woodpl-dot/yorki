@@ -23,7 +23,7 @@ function headline(item: AppNotification) {
   return `${item.actor_name ?? 'Someone'} ${meta.verb} “${item.task_title ?? 'a card'}”`
 }
 
-export default function NotificationBell({ align = 'right' }: { align?: 'left' | 'right' }) {
+export default function NotificationBell({ align = 'right', placement = 'below' }: { align?: 'left' | 'right'; placement?: 'above' | 'below' }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [items, setItems] = useState<AppNotification[]>([])
@@ -114,8 +114,9 @@ export default function NotificationBell({ align = 'right' }: { align?: 'left' |
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           <div className={cn(
-            'absolute top-full mt-1.5 z-20 w-[min(360px,calc(100vw-24px))] bg-card border border-border rounded-xl shadow-xl animate-scale-in overflow-hidden',
-            align === 'right' ? 'right-0' : 'left-0',
+            'fixed inset-x-3 top-[calc(4.75rem+env(safe-area-inset-top))] z-20 max-h-[calc(100dvh-6rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] bg-card border border-border rounded-xl shadow-xl animate-scale-in overflow-hidden sm:absolute sm:inset-x-auto sm:top-auto sm:w-[min(360px,calc(100vw-24px))] sm:max-h-none',
+            align === 'right' ? 'sm:right-0' : 'sm:left-0',
+            placement === 'above' ? 'sm:bottom-full sm:mb-1.5' : 'sm:top-full sm:mt-1.5',
           )}>
             <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-border">
               <p className="text-xs font-semibold text-foreground">Notifications</p>
@@ -125,7 +126,7 @@ export default function NotificationBell({ align = 'right' }: { align?: 'left' |
                 </button>
               )}
             </div>
-            <div className="max-h-[420px] overflow-y-auto">
+            <div className="max-h-[calc(100dvh-13rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] overflow-y-auto sm:max-h-[50dvh]">
               {items.length === 0 ? (
                 <p className="px-4 py-8 text-center text-xs text-muted-foreground">
                   You&apos;re all caught up. Mentions, assignments and replies on your cards show up here.

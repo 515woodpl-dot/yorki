@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { unlink } from 'node:fs/promises'
 import { revalidatePath } from 'next/cache'
 import { requireRole } from '@/lib/auth'
+import { canSeeCategory, canSeeTask } from '@/lib/category-access'
 import {
   DEFAULT_BOARD_ID,
   createTask as dbCreateTask,
@@ -42,6 +43,7 @@ import { getAssignedUserIds, isTaskAssignedToUser } from '@/lib/utils'
 
 // custom_fields keys that only admins may change (assignment + sharing).
 const PROTECTED_CUSTOM_FIELD_KEYS = [
+  'locked',
   'share_token', 'recipient_email', 'recipient_emails',
   'assigned_user_id', 'assigned_user_ids', 'assigned_user_names', 'assigned_user_name',
 ]
@@ -54,6 +56,8 @@ function isAdminUser(user: Pick<SessionUser, 'role'>) {
 function canWorkOnTask(user: Pick<SessionUser, 'id' | 'role'>, task: Task) {
   return isAdminUser(user) || task.submitted_by === user.id || isTaskAssignedToUser(task, user.id)
 }
+
+const lockedReason = (task: Task) => task.custom_fields?.locked === true ? 'it is locked' : null
 
 function failure(err: unknown): { success: false; error: string; code: 'conflict' | 'error' } {
   if (err instanceof TaskConflictError) {
@@ -238,6 +242,8 @@ async function syncTaskToGoogleCalendar(task: Task) {
 
 async function loadVisibleColumns(user: SessionUser, boardId: string): Promise<ColumnWithTasks[]> {
   const columns = await getActiveColumns(boardId, false)
+  const allowedColumns = await Promise.all(columns.map(async col => await canSeeCategory(user, col.id)))
+  const visibleColumns = columns.filter((_, index) => allowedColumns[index])
   const tasks   = (await getActiveTasks(boardId)).filter(t => t.status !== 'archived')
 
   // Staff see tasks they submitted or tasks assigned to them
@@ -248,7 +254,7 @@ async function loadVisibleColumns(user: SessionUser, boardId: string): Promise<C
   const includeInternal = isAdminUser(user)
 
   return Promise.all(
-    columns.map(async col => ({
+    visibleColumns.map(async col => ({
       ...col,
       tasks: await Promise.all(
         visibleTasks
@@ -289,6 +295,8 @@ export async function createTask(input: CreateTaskInput): Promise<ActionResult<T
     const columns = await getActiveColumns(DEFAULT_BOARD_ID, false)
     const inbox   = columns.find(c => c.is_default)
     if (!inbox) throw new Error('Inbox column not found.')
+    const targetColumn = input.column_id ? columns.find(c => c.id === input.column_id) : inbox
+    if (!targetColumn || targetColumn.is_archive || !(await canSeeCategory(user, targetColumn.id))) throw new Error('Choose a valid task category.')
 
     const shareToken = randomUUID()
     const assignedIds = Array.from(new Set(
@@ -300,6 +308,9 @@ export async function createTask(input: CreateTaskInput): Promise<ActionResult<T
     const assignedUsers = assignedIds
       .map((userId) => findUser(userId))
       .filter((profile): profile is NonNullable<typeof profile> => Boolean(profile))
+    for (const assigned of assignedUsers) {
+      if (!(await canSeeCategory(assigned, targetColumn.id))) throw new Error(`${assigned.full_name ?? assigned.email ?? 'Assignee'} cannot access this category.`)
+    }
     const recipientEmails = Array.from(new Set([
       ...(input.recipient_email?.trim() ? [input.recipient_email.trim().toLowerCase()] : []),
       ...assignedUsers.map((profile) => profile.email?.trim().toLowerCase()).filter((email): email is string => Boolean(email)),
@@ -319,7 +330,7 @@ export async function createTask(input: CreateTaskInput): Promise<ActionResult<T
 
     const task = await dbCreateTask({
       boardId:      DEFAULT_BOARD_ID,
-      columnId:     inbox.id,
+      columnId:     targetColumn.id,
       title:        input.title,
       description:  input.description,
       priority:     input.priority ?? 'normal',
@@ -380,13 +391,16 @@ export async function moveTask(input: MoveTaskInput, expected?: TaskExpectation)
   try {
     const user = await requireRole('staff', 'admin', 'super_admin')
     const task = await getTaskById(input.task_id)
+    if (task && !(await canSeeTask(user, task))) throw new Error('Task not found.')
     if (!task) throw new Error('This card no longer exists — it may have been deleted.')
+    if (lockedReason(task)) throw new Error('Unlock this card before moving it.')
     if (!canWorkOnTask(user, task)) {
       throw new Error('You do not have permission to move this task.')
     }
 
     const columns = await getActiveColumns(task.board_id, true)
     const toCol   = columns.find(c => c.id === input.new_column_id)
+    if (toCol && !(await canSeeCategory(user, toCol.id))) throw new Error('Category not available.')
     if (!toCol) throw new Error('That column no longer exists.')
     if (!Number.isFinite(input.new_position)) throw new Error('Invalid task position.')
     if (toCol.is_archive) {
@@ -407,7 +421,7 @@ export async function moveTask(input: MoveTaskInput, expected?: TaskExpectation)
       }
     }, {
       actorId: user.id,
-      guard: expectationGuard(expected, user.id, (cur) => cur.status === 'archived' ? 'it was archived' : null),
+      guard: expectationGuard(expected, user.id, (cur) => lockedReason(cur) ?? (cur.status === 'archived' ? 'it was archived' : null)),
     })
     if (!moved) throw new Error('This card no longer exists — it may have been deleted.')
 
@@ -438,7 +452,10 @@ export async function updateTask(input: UpdateTaskInput, expected?: TaskExpectat
   try {
     const user = await requireRole('staff', 'admin', 'super_admin')
     const existingTask = await getTaskById(input.id)
+    if (existingTask && !(await canSeeTask(user, existingTask))) throw new Error('Task not found.')
     if (!existingTask) throw new Error('This card no longer exists — it may have been deleted.')
+    if (lockedReason(existingTask)) throw new Error('Unlock this card before editing it.')
+    if (Object.prototype.hasOwnProperty.call(input.custom_fields ?? {}, 'locked')) throw new Error('Use the lock control to change card locking.')
     validateTaskFields(input as unknown as Record<string, unknown>)
     if ('status' in input || 'column_id' in input || 'position' in input) throw new Error('Use the task lifecycle actions to move or change task status.')
     const previousRecipientEmails = getRecipientEmailsFromTask(existingTask)
@@ -556,7 +573,7 @@ export async function updateTask(input: UpdateTaskInput, expected?: TaskExpectat
       return updates
     }, {
       actorId: user.id,
-      guard: expectationGuard(expected, user.id),
+      guard: expectationGuard(expected, user.id, lockedReason),
     })
     if (!task) throw new Error('This card no longer exists — it may have been deleted.')
 
@@ -583,11 +600,30 @@ export async function updateTask(input: UpdateTaskInput, expected?: TaskExpectat
   }
 }
 
+export async function setTaskLocked(taskId: string, locked: boolean, expected?: TaskExpectation): Promise<ActionResult<Task>> {
+  try {
+    const user = await requireRole('admin', 'super_admin')
+    const task = await getTaskById(taskId)
+    if (task && !(await canSeeTask(user, task))) throw new Error('Task not found.')
+    if (!task) throw new Error('This card no longer exists — it may have been deleted.')
+    const updated = await dbUpdateTask(taskId, (current) => ({
+      custom_fields: { ...(current.custom_fields ?? {}), locked },
+    }), { actorId: user.id, guard: expectationGuard(expected, user.id) })
+    if (!updated) throw new Error('This card no longer exists — it may have been deleted.')
+    await createActivityLog({ actor_id: user.id, task_id: taskId, entity_type: 'task', entity_id: taskId, action: 'task_updated', metadata: { locked } })
+    notifyBoard(updated, user.id, locked ? 'task_locked' : 'task_unlocked')
+    revalidateBoard()
+    return { success: true, data: updated }
+  } catch (err) { return failure(err) }
+}
+
 export async function completeTask(taskId: string, expected?: TaskExpectation): Promise<ActionResult<Task>> {
   try {
     const user = await requireRole('staff', 'admin', 'super_admin')
     const task = await getTaskById(taskId)
+    if (task && !(await canSeeTask(user, task))) throw new Error('Task not found.')
     if (!task) throw new Error('This card no longer exists — it may have been deleted.')
+    if (lockedReason(task)) throw new Error('Unlock this card before completing it.')
     if (!canWorkOnTask(user, task)) throw new Error('You do not have permission to complete this task.')
 
     const columns      = await getActiveColumns(task.board_id, false)
@@ -600,9 +636,9 @@ export async function completeTask(taskId: string, expected?: TaskExpectation): 
     }), {
       actorId: user.id,
       guard: expectationGuard(expected, user.id, (cur) =>
-        cur.status === 'archived' ? 'it was archived'
+        lockedReason(cur) ?? (cur.status === 'archived' ? 'it was archived'
           : cur.status === 'completed' ? 'it is already completed'
-          : null),
+          : null)),
     })
     if (!updated) throw new Error('This card no longer exists — it may have been deleted.')
 
@@ -628,7 +664,9 @@ export async function reopenTask(taskId: string, expected?: TaskExpectation): Pr
   try {
     const user = await requireRole('staff', 'admin', 'super_admin')
     const task = await getTaskById(taskId)
+    if (task && !(await canSeeTask(user, task))) throw new Error('Task not found.')
     if (!task) throw new Error('This card no longer exists — it may have been deleted.')
+    if (lockedReason(task)) throw new Error('Unlock this card before reopening it.')
     if (!canWorkOnTask(user, task)) throw new Error('You do not have permission to reopen this task.')
 
     const columns = await getActiveColumns(task.board_id, false)
@@ -641,9 +679,9 @@ export async function reopenTask(taskId: string, expected?: TaskExpectation): Pr
     }), {
       actorId: user.id,
       guard: expectationGuard(expected, user.id, (cur) =>
-        cur.status === 'archived' ? 'it was archived'
+        lockedReason(cur) ?? (cur.status === 'archived' ? 'it was archived'
           : cur.status !== 'completed' ? 'it was already reopened'
-          : null),
+          : null)),
     })
     if (!updated) throw new Error('This card no longer exists — it may have been deleted.')
 
@@ -667,7 +705,9 @@ export async function archiveTask(taskId: string, expected?: TaskExpectation): P
   try {
     const user = await requireRole('admin', 'super_admin')
     const task = await getTaskById(taskId)
+    if (task && !(await canSeeTask(user, task))) throw new Error('Task not found.')
     if (!task) throw new Error('This card no longer exists — it may have been deleted.')
+    if (lockedReason(task)) throw new Error('Unlock this card before archiving it.')
 
     const columns    = await getActiveColumns(task.board_id, true)
     const archiveCol = columns.find(c => c.is_archive)
@@ -675,7 +715,7 @@ export async function archiveTask(taskId: string, expected?: TaskExpectation): P
 
     const updated = await dbUpdateTask(taskId, (current) => ({ status: 'archived', column_id: archiveCol.id, custom_fields: withoutPublicShare(current) }), {
       actorId: user.id,
-      guard: expectationGuard(expected, user.id, (cur) => cur.status === 'archived' ? 'it is already archived' : null),
+      guard: expectationGuard(expected, user.id, (cur) => lockedReason(cur) ?? (cur.status === 'archived' ? 'it is already archived' : null)),
     })
     if (!updated) throw new Error('This card no longer exists — it may have been deleted.')
     await createActivityLog({
@@ -698,7 +738,9 @@ export async function restoreTask(taskId: string, targetColumnId: string): Promi
   try {
     const user = await requireRole('admin', 'super_admin')
     const task = await getTaskById(taskId)
+    if (task && !(await canSeeTask(user, task))) throw new Error('Task not found.')
     if (!task) throw new Error('This card no longer exists — it may have been deleted.')
+    if (lockedReason(task)) throw new Error('Unlock this card before restoring it.')
 
     const columns = await getActiveColumns(task.board_id, false)
     const targetColumn = columns.find((column) => column.id === targetColumnId)
@@ -714,7 +756,7 @@ export async function restoreTask(taskId: string, targetColumnId: string): Promi
       return { status: 'new', column_id: targetColumnId, completed_at: null, custom_fields: nextCustomFields }
     }, {
       actorId: user.id,
-      guard: expectationGuard(undefined, user.id, (cur) => cur.status !== 'archived' ? 'it was already restored' : null),
+      guard: expectationGuard(undefined, user.id, (cur) => lockedReason(cur) ?? (cur.status !== 'archived' ? 'it was already restored' : null)),
     })
     if (!updated) throw new Error('This card no longer exists — it may have been deleted.')
     await createActivityLog({
@@ -738,13 +780,15 @@ export async function deleteTask(taskId: string, expected?: TaskExpectation): Pr
   try {
     const user = await requireRole('admin', 'super_admin')
     const task = await getTaskById(taskId)
+    if (task && !(await canSeeTask(user, task))) throw new Error('Task not found.')
     if (!task) throw new Error('This card no longer exists — it may have been deleted.')
+    if (lockedReason(task)) throw new Error('Unlock this card before deleting it.')
 
     // Delete first (guarded), then clean up the calendar — so a rejected
     // delete never removes the calendar event.
     const deleted = await softDeleteTask(taskId, {
       actorId: user.id,
-      guard: expectationGuard(expected, user.id),
+      guard: expectationGuard(expected, user.id, lockedReason),
     })
     if (!deleted) throw new Error('This card no longer exists — it may have been deleted.')
 
@@ -780,8 +824,9 @@ export async function deleteTask(taskId: string, expected?: TaskExpectation): Pr
 }
 
 export async function getArchive(page = 0, limit = 25) {
-  await requireRole('admin', 'super_admin')
-  const all = (await getActiveTasks()).filter(t => t.status === 'archived')
+  const user = await requireRole('admin', 'super_admin')
+  const archived = (await getActiveTasks()).filter(t => t.status === 'archived')
+  const all = (await Promise.all(archived.map(async task => ({ task, visible: await canSeeTask(user, task) })))).filter(entry => entry.visible).map(entry => entry.task)
     .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
 
   return {
@@ -818,7 +863,10 @@ export async function deleteTaskAttachment(attachmentId: string): Promise<Action
     if (!attachment) throw new Error('Attachment not found')
 
     const task = await getTaskById(attachment.task_id)
+    if (task && !(await canSeeTask(user, task))) throw new Error('Task not found.')
     if (!task) throw new Error('Task not found')
+    if (attachment.comment_id) throw new Error('Comment attachments cannot be removed from the task attachment list.')
+    if (lockedReason(task)) throw new Error('Unlock this card before deleting task attachments.')
 
     const isAdmin = user.role === 'admin' || user.role === 'super_admin'
     const canDelete =

@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { RotateCcw, Trash2, Archive, ChevronDown } from 'lucide-react'
+import { RotateCcw, Trash2, Archive } from 'lucide-react'
+import AppSelect from '@/components/system/AppSelect'
 import { toast } from 'sonner'
 import { restoreTask, deleteTask } from '@/lib/actions/tasks'
 import { cn, getPriorityConfig, formatRelativeDate } from '@/lib/utils'
@@ -89,22 +90,7 @@ export default function ArchiveClient({ initialTasks, columns, isSuperAdmin }: P
             {/* Restore controls */}
             <div className="flex items-center gap-2 shrink-0">
               {/* Column selector */}
-              <div className="relative">
-                <select
-                  value={restoreTarget[task.id] ?? columns[0]?.id ?? ''}
-                  onChange={e => setRestoreTarget(prev => ({ ...prev, [task.id]: e.target.value }))}
-                  className={cn(
-                    'h-8 pl-2 pr-7 rounded-lg border border-input bg-background',
-                    'text-xs text-foreground appearance-none cursor-pointer',
-                    'focus:outline-none focus:ring-2 focus:ring-primary/50'
-                  )}
-                >
-                  {columns.map(col => (
-                    <option key={col.id} value={col.id}>{col.name}</option>
-                  ))}
-                </select>
-                <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-              </div>
+              <AppSelect ariaLabel={`Restore ${task.title} to column`} value={restoreTarget[task.id] ?? columns[0]?.id ?? ''} onValueChange={value => setRestoreTarget(prev => ({ ...prev, [task.id]: value }))} options={columns.map(col => ({ value: col.id, label: col.name }))} className="h-8 rounded-lg bg-background text-xs" />
 
               <button
                 onClick={() => handleRestore(task.id)}

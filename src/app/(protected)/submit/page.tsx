@@ -1,11 +1,15 @@
 import { getSessionUser } from '@/lib/auth'
 import { getAllUsers } from '@/lib/local-data'
 import SubmitForm from './SubmitForm'
+import { getActiveColumns, DEFAULT_BOARD_ID } from '@/lib/local-data'
+import { canSeeCategory } from '@/lib/category-access'
 import Link from 'next/link'
 import { ArrowLeft, Sparkles } from 'lucide-react'
 
 export default async function SubmitPage() {
   const user = await getSessionUser()
+  const columns = (await getActiveColumns(DEFAULT_BOARD_ID, false)).filter(column => !column.is_archive)
+  const categories = user ? (await Promise.all(columns.map(async column => ({ column, visible: await canSeeCategory(user, column.id) })))).filter(entry => entry.visible).map(entry => entry.column) : []
   const staffUsers = (await getAllUsers()).filter((entry) => entry.is_active && entry.role !== 'super_admin')
   return (
     <div className="flex flex-1 flex-col">
@@ -15,7 +19,7 @@ export default async function SubmitPage() {
           <div aria-hidden="true" className="pointer-events-none absolute -right-8 -top-28 h-64 w-64 rounded-full border-[38px] border-white/[0.05]" />
           <div className="relative flex flex-wrap items-end justify-between gap-3"><div><p className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-[#c7d9ee]"><Sparkles size={14} /> Let&apos;s make progress</p><h1 className="text-3xl font-semibold tracking-tight">New request</h1><p className="mt-2 text-sm text-white/75">Give your team the details to get the job moving.</p></div><p className="inline-flex rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs text-white/85">Submitting as&nbsp;<span className="font-semibold text-white">{user?.full_name ?? user?.email}</span></p></div>
         </div>
-        <SubmitForm staffUsers={staffUsers} />
+        <SubmitForm staffUsers={staffUsers} categories={categories} />
       </div>
     </div>
   )

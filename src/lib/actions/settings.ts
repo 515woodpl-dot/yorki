@@ -230,7 +230,7 @@ export async function getAllUsersAction(): Promise<UserProfile[]> {
   return getAllUsers()
 }
 
-export async function createUser(email: string, fullName: string, role: 'staff' | 'admin'): Promise<ActionResult> {
+export async function createUser(email: string, fullName: string, role: 'staff' | 'admin'): Promise<ActionResult<{ inviteDelivered: boolean; inviteError?: string }>> {
   try {
     const actor = await requireRole('admin', 'super_admin')
     if (role !== 'staff' && role !== 'admin') throw new Error('Invalid role.')
@@ -248,16 +248,18 @@ export async function createUser(email: string, fullName: string, role: 'staff' 
       entity_type: 'user', entity_id: null,
       action: 'user_created', metadata: { email: normalizedEmail, role },
     })
-    // Generate invite link and send email
+    // Generate and deliver the password-setup invitation before reporting success.
     const users = await getAllUsers()
     const created = users.find(u => u.email?.toLowerCase() === normalizedEmail)
     if (created) {
       const { url } = await createInvite(created.id)
-      void sendInviteEmail(normalizedEmail, fullName, role, url)
+      const delivery = await sendInviteEmail(normalizedEmail, fullName, role, url)
+      revalidatePath(normalizePath('/admin/users'))
+      return { success: true, data: { inviteDelivered: delivery.delivered, inviteError: delivery.error } }
     }
 
     revalidatePath(normalizePath('/admin/users'))
-    return { success: true, data: undefined }
+    return { success: true, data: { inviteDelivered: false, inviteError: 'Account was created, but its invitation could not be prepared.' } }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Unknown error' }
   }
@@ -367,4 +369,32 @@ export async function getStaffUsers(): Promise<UserProfile[]> {
   await requireRole('admin', 'super_admin')
   const all = await getAllUsers()
   return all.filter(u => u.is_active && u.role !== 'super_admin')
+}
+
+export async function getUserCategoryAccess(): Promise<Record<string, string[] | null>> {
+  await requireRole('admin', 'super_admin')
+  const users = await getAllUsers()
+  return Object.fromEntries(await Promise.all(users.map(async user => [
+    user.id,
+    await getSetting<string[] | null>(`category_access:${user.id}`, null),
+  ])))
+}
+
+export async function updateUserCategoryAccess(userId: string, categoryIds: string[] | null): Promise<ActionResult> {
+  try {
+    const actor = await requireRole('admin', 'super_admin')
+    assertMayManageUser(actor, userId)
+    if (actor.id === userId) throw new Error('You cannot change your own category access.')
+    if (categoryIds !== null) {
+      if (!Array.isArray(categoryIds) || categoryIds.some(id => typeof id !== 'string')) throw new Error('Invalid categories.')
+      const valid = new Set((await getActiveColumns(DEFAULT_BOARD_ID, false)).map(column => column.id))
+      if (categoryIds.some(id => !valid.has(id))) throw new Error('Invalid categories.')
+    }
+    await upsertSetting(`category_access:${userId}`, categoryIds, actor.id)
+    revalidatePath(normalizePath('/dashboard'))
+    revalidatePath(normalizePath('/admin/users'))
+    return { success: true, data: undefined }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Unknown error' }
+  }
 }

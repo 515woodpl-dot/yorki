@@ -12,6 +12,7 @@
  */
 
 import { requireRole } from '@/lib/auth'
+import { canSeeTask } from '@/lib/category-access'
 import { getDb } from '@/lib/db'
 import { getActiveTasks, getAllUsers } from '@/lib/local-data'
 import { getAssignedUserIds, isTaskAssignedToUser } from '@/lib/utils'
@@ -106,7 +107,8 @@ export async function getQuickAddKnowledge(): Promise<{ memory: QuickAddMemory; 
   const users = await getAllUsers()
 
   // Learn only from cards this person may see (staff: their own), newest first.
-  const tasks = (await getActiveTasks())
+  const accessible = await Promise.all((await getActiveTasks()).map(async task => ({ task, visible: await canSeeTask(user, task) })))
+  const tasks = accessible.filter(entry => entry.visible).map(entry => entry.task)
     .filter((t) => isAdmin(user.role) || t.submitted_by === user.id || isTaskAssignedToUser(t, user.id))
     .sort((a, b) => b.created_at.localeCompare(a.created_at))
     .slice(0, HISTORY_CARDS)

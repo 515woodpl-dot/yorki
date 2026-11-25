@@ -20,7 +20,7 @@ import {
 import { arrayMove } from '@dnd-kit/sortable'
 import { toast } from 'sonner'
 import { Plus, Search, X, LayoutDashboard, List, CalendarDays, FolderOpen, Clock3, AlertTriangle, CheckCircle2, SlidersHorizontal } from 'lucide-react'
-import { getBoardSnapshot, moveTask } from '@/lib/actions/tasks'
+import { completeTask, deleteTask, getBoardSnapshot, moveTask } from '@/lib/actions/tasks'
 import { cn, isTaskAssignedToUser, getCurrentDateInAppTimeZone, getAssignedUserIds, getUserDisplayName } from '@/lib/utils'
 import { reportActionFailure, useBoardStream } from '@/lib/live/client'
 import type { BoardSnapshot, ColumnWithTasks, TaskExpectation, TaskPresence, TaskWithRelations, SessionUser } from '@/lib/types'
@@ -30,6 +30,7 @@ import BoardColumn from './BoardColumn'
 import TaskCard from './TaskCard'
 import TaskDetailPanel from '../tasks/TaskDetailPanel'
 import QuickAdd, { type QuickAddPerson } from './QuickAdd'
+import AppSelect from '@/components/system/AppSelect'
 import { mentionsToPlainText } from '../tasks/MentionTextarea'
 
 interface Props {
@@ -137,6 +138,7 @@ export default function KanbanBoard({ initialColumns, currentUser, initialSeq = 
   const [isMobile, setIsMobile] = useState(false)
   const deferredSearchQuery             = useDeferredValue(searchQuery)
   const [isPending,    startTransition] = useTransition()
+  const [swipeActionTaskId, setSwipeActionTaskId] = useState<string | null>(null)
 
   const [presence, setPresence] = useState<TaskPresence[]>([])
 
@@ -545,6 +547,50 @@ export default function KanbanBoard({ initialColumns, currentUser, initialSeq = 
     router.replace('/dashboard', { scroll: false })
   }, [])
 
+  async function handleSwipeComplete(task: TaskWithRelations) {
+    if (swipeActionTaskId || task.status === 'completed' || task.custom_fields?.locked === true || !canMoveTask(task)) return
+    setSwipeActionTaskId(task.id)
+    try {
+      const result = await runWrite(() => completeTask(task.id, { column_id: task.column_id, status: task.status }))
+      if (!result.success) {
+        reportActionFailure(result, 'Failed to complete task.')
+        return
+      }
+      toast.success('Task marked as completed')
+      await refreshBoard()
+    } finally {
+      setSwipeActionTaskId(null)
+    }
+  }
+
+  async function handleSwipeDelete(task: TaskWithRelations) {
+    if (swipeActionTaskId || !isAdmin || task.custom_fields?.locked === true) return
+    if (!window.confirm(`Permanently delete “${task.title}”? This cannot be undone.`)) return
+    setSwipeActionTaskId(task.id)
+    try {
+      const result = await runWrite(() => deleteTask(task.id, { version: task.version }))
+      if (!result.success) {
+        reportActionFailure(result, 'Failed to delete task.')
+        return
+      }
+      setColumns(prev => prev.map(column => ({ ...column, tasks: column.tasks.filter(item => item.id !== task.id) })))
+      toast.success('Task permanently deleted')
+    } finally {
+      setSwipeActionTaskId(null)
+    }
+  }
+
+  function getSwipeActions(task: TaskWithRelations) {
+    const locked = task.custom_fields?.locked === true
+    const onComplete = !locked && task.status !== 'completed' && canMoveTask(task)
+      ? () => { void handleSwipeComplete(task) }
+      : undefined
+    const onDelete = !locked && isAdmin
+      ? () => { void handleSwipeDelete(task) }
+      : undefined
+    return { onComplete, onDelete, busy: swipeActionTaskId === task.id }
+  }
+
   const handleTaskMove = useCallback(async (taskId: string, columnId: string) => {
     const currentCols = columnsRef.current
     const sourceCol = currentCols.find((col) => col.tasks.some((task) => task.id === taskId))
@@ -640,14 +686,14 @@ export default function KanbanBoard({ initialColumns, currentUser, initialSeq = 
           { label: 'Completed this week', value: stats.completed, icon: CheckCircle2, color: 'text-emerald-700 dark:text-emerald-400', selected: statusFilter === 'completed', action: () => { setStatusFilter('completed'); setDueFilter('all') } },
         ].map(({ label, value, icon: Icon, color, selected, action }, index) => <button key={label} type="button" onClick={action} aria-pressed={selected} aria-label={`${label}: ${value}`} className={cn('group flex min-h-[100px] items-start justify-between rounded-2xl border bg-gradient-to-br p-4 text-left shadow-[0_5px_16px_-8px_rgba(35,67,115,0.25)] transition-all hover:-translate-y-0.5 hover:shadow-[0_10px_22px_-9px_rgba(35,67,115,0.32)] dark:border-border dark:from-slate-800 dark:to-slate-900 sm:min-h-[116px] sm:p-5', index === 0 ? 'border-indigo-200 from-white via-indigo-50 to-indigo-100' : index === 1 ? 'border-blue-200 from-white via-blue-50 to-sky-100' : index === 2 ? 'border-amber-200 from-white via-amber-50 to-amber-100' : 'border-emerald-200 from-white via-emerald-50 to-teal-100', selected && 'ring-2 ring-primary/50')}><span><span className="block text-xs font-medium text-muted-foreground">{label}</span><span className="mt-2 block text-3xl font-semibold tracking-tight tabular-nums">{value}</span></span><span className={cn('rounded-xl bg-white/80 p-2.5 shadow-sm dark:bg-white/10', color)}><Icon size={19} strokeWidth={1.8} /></span></button>)}
       </div>
-      <QuickAdd people={people} currentUserId={currentUser.id} isAdmin={currentUser.role === 'admin' || currentUser.role === 'super_admin'} onCreated={() => { void refreshBoard() }} />
       <div className="mb-5 flex flex-wrap items-center gap-2">
         <div className="relative min-w-[180px] flex-1 sm:max-w-md"><Search size={17} className="absolute left-3 top-3 text-muted-foreground" /><input aria-label="Search tasks" type="search" placeholder="Search tasks, people, or notes" value={searchQuery} onChange={event => setSearchQuery(event.target.value)} className="h-11 w-full rounded-xl border border-border bg-card pl-10 pr-9 text-sm placeholder:text-muted-foreground focus:border-primary" />{searchQuery && <button aria-label="Clear search" onClick={() => setSearchQuery('')} className="absolute right-1 top-1 flex h-9 w-8 items-center justify-center text-muted-foreground"><X size={15} /></button>}</div>
+        <QuickAdd people={people} currentUserId={currentUser.id} isAdmin={currentUser.role === 'admin' || currentUser.role === 'super_admin'} onCreated={() => { void refreshBoard() }} />
         <div aria-label="View" className="flex h-11 coarse:h-auto rounded-xl border border-border bg-card p-1 sm:order-last sm:ml-auto">{[{ key: 'board', label: 'Board', icon: LayoutDashboard }, { key: 'list', label: 'List', icon: List }, { key: 'calendar', label: 'Calendar', icon: CalendarDays }].map(({ key, label, icon: Icon }) => <button key={key} aria-label={`${label} view`} aria-pressed={view === key} onClick={() => changeView(key)} className={cn('flex items-center gap-1.5 rounded-lg px-2.5 coarse:h-10 coarse:min-w-11 coarse:justify-center text-xs font-medium', view === key ? 'bg-blue-100/70 text-primary dark:bg-primary/15' : 'text-muted-foreground hover:bg-accent/40')}><Icon size={15} /><span className="hidden xl:inline">{label}</span></button>)}</div>
         <div className="flex w-full flex-wrap gap-2 sm:w-auto">
-          <select aria-label="Filter by assignee" value={assigneeFilter} onChange={event => setAssigneeFilter(event.target.value)} className="h-11 min-w-0 flex-1 rounded-xl border border-border bg-card px-2 text-xs text-foreground sm:max-w-[150px]"><option value="all">All assignees</option><option value="unassigned">Unassigned</option>{assigneeOptions.map(user => <option key={user.id} value={user.id}>{getUserDisplayName(user)}</option>)}</select>
-          <select aria-label="Filter by priority" value={priorityFilter} onChange={event => setPriorityFilter(event.target.value)} className="h-11 min-w-0 flex-1 rounded-xl border border-border bg-card px-2 text-xs text-foreground sm:max-w-[130px]"><option value="all">All priorities</option>{['urgent', 'high', 'normal', 'low'].map(priority => <option key={priority} value={priority}>{priority[0].toUpperCase() + priority.slice(1)}</option>)}</select>
-          <select aria-label="Filter by due date" value={dueFilter} onChange={event => { setDueFilter(event.target.value); setStatusFilter('all') }} className="hidden h-11 rounded-xl border border-border bg-card px-2 text-xs text-foreground sm:block"><option value="all">Any due date</option><option value="today">Today</option><option value="overdue">Overdue</option><option value="upcoming">Upcoming</option></select>
+          <AppSelect ariaLabel="Filter by assignee" value={assigneeFilter} onValueChange={setAssigneeFilter} options={[{ value: 'all', label: 'All assignees' }, { value: 'unassigned', label: 'Unassigned' }, ...assigneeOptions.map(user => ({ value: user.id, label: getUserDisplayName(user) }))]} className="h-11 min-w-0 flex-1 text-xs sm:max-w-[150px]" />
+          <AppSelect ariaLabel="Filter by priority" value={priorityFilter} onValueChange={setPriorityFilter} options={[{ value: 'all', label: 'All priorities' }, ...['urgent', 'high', 'normal', 'low'].map(priority => ({ value: priority, label: priority[0].toUpperCase() + priority.slice(1) }))]} className="h-11 min-w-0 flex-1 text-xs sm:max-w-[130px]" />
+          <AppSelect ariaLabel="Filter by due date" value={dueFilter} onValueChange={value => { setDueFilter(value); setStatusFilter('all') }} options={[{ value: 'all', label: 'Any due date' }, { value: 'today', label: 'Today' }, { value: 'overdue', label: 'Overdue' }, { value: 'upcoming', label: 'Upcoming' }]} className="hidden h-11 text-xs sm:inline-flex" />
         </div>
       </div>
       <div className="mb-4 flex min-h-8 flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
@@ -659,12 +705,12 @@ export default function KanbanBoard({ initialColumns, currentUser, initialSeq = 
       {totalMatches === 0 ? <div className="my-8 flex min-h-[240px] flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card/50 p-8 text-center"><CheckSquareIcon /><h2 className="mt-4 text-lg font-semibold">{hasFilters ? 'No tasks match these filters' : 'A little breathing room'}</h2><p className="mt-2 max-w-sm text-sm text-muted-foreground">{hasFilters ? 'Try another search or clear your filters to see more work.' : mine ? 'Tasks you create or are assigned to will appear here.' : 'Create a task to get your team’s next job moving.'}</p>{hasFilters ? <button onClick={resetFilters} className="mt-5 min-h-11 rounded-xl bg-primary px-5 text-sm font-medium text-primary-foreground">Clear filters</button> : <Link href="/submit" className="mt-5 min-h-11 rounded-xl bg-primary px-5 py-3 text-sm font-medium text-primary-foreground">Create a task</Link>}</div> : view === 'board' ? <>
         <div className="mb-4 flex gap-2 overflow-x-auto pb-1 sm:hidden">{filteredColumns.map(column => <button key={column.id} onClick={() => setMobileColumnId(column.id)} className={cn('min-h-11 shrink-0 rounded-xl border px-4 text-xs font-semibold', visibleMobileColumnId === column.id ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card')}>{column.name} ({column.tasks.length})</button>)}</div>
         <div className="min-h-[350px] flex-1 overflow-x-auto pb-5 lg:h-[calc(100dvh-340px)] lg:flex-none board-scroll"><DndContext sensors={isMobile ? [] : sensors} collisionDetection={collisionDetectionStrategy} onDragStart={isMobile ? undefined : handleDragStart} onDragEnd={isMobile ? undefined : handleDragEnd} onDragCancel={handleDragCancel}>
-          {isMobile ? <div className="flex h-full">{filteredColumns.filter(column => column.id === visibleMobileColumnId).map(column => <BoardColumn key={column.id} column={column} currentUser={currentUser} onTaskClick={handleTaskClick} presenceByTask={presenceByTask} />)}</div> :
+          {isMobile ? <div className="flex h-full">{filteredColumns.filter(column => column.id === visibleMobileColumnId).map(column => <BoardColumn key={column.id} column={column} currentUser={currentUser} onTaskClick={handleTaskClick} presenceByTask={presenceByTask} getSwipeActions={getSwipeActions} />)}</div> :
           <div className="flex h-full min-w-max gap-4 xl:min-w-0">{filteredColumns.map(column => <BoardColumn key={column.id} column={column} currentUser={currentUser} onTaskClick={handleTaskClick} presenceByTask={presenceByTask} />)}</div>}
           <DragOverlay dropAnimation={{ duration: 150, easing: 'ease-out' }}>{!isMobile && activeTask && <TaskCard task={activeTask} currentUser={currentUser} isDragging />}</DragOverlay>
         </DndContext></div>
-      </> : view === 'calendar' ? <div className="space-y-5 pb-6">{Array.from(calendarGroups, ([day, tasks]) => <section key={day || 'undated'} className="rounded-2xl border border-border bg-card p-4 sm:p-5"><h2 className="mb-4 flex items-center gap-2 text-sm font-semibold"><CalendarDays size={17} className="text-primary" />{day ? `${day === today ? 'Today · ' : ''}${new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' }).format(new Date(`${day}T12:00:00Z`))}` : 'No due date'}<span className="ml-auto text-xs font-normal text-muted-foreground">{tasks.length} task{tasks.length === 1 ? '' : 's'}</span></h2><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{tasks.map(task => <TaskCard key={task.id} task={task} currentUser={currentUser} draggable={false} onClick={() => handleTaskClick(task)} />)}</div></section>)}</div> : <>
-        <div className="space-y-3 pb-5 sm:hidden">{visibleTasks.map(task => <TaskCard key={task.id} task={task} currentUser={currentUser} draggable={false} onClick={() => handleTaskClick(task)} />)}</div>
+      </> : view === 'calendar' ? <div className="space-y-5 pb-6">{Array.from(calendarGroups, ([day, tasks]) => <section key={day || 'undated'} className="rounded-2xl border border-border bg-card p-4 sm:p-5"><h2 className="mb-4 flex items-center gap-2 text-sm font-semibold"><CalendarDays size={17} className="text-primary" />{day ? `${day === today ? 'Today · ' : ''}${new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' }).format(new Date(`${day}T12:00:00Z`))}` : 'No due date'}<span className="ml-auto text-xs font-normal text-muted-foreground">{tasks.length} task{tasks.length === 1 ? '' : 's'}</span></h2><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{tasks.map(task => <TaskCard key={task.id} task={task} currentUser={currentUser} draggable={false} onClick={() => handleTaskClick(task)} swipeActions={isMobile ? getSwipeActions(task) : undefined} />)}</div></section>)}</div> : <>
+        <div className="space-y-3 pb-5 sm:hidden">{visibleTasks.map(task => <TaskCard key={task.id} task={task} currentUser={currentUser} draggable={false} onClick={() => handleTaskClick(task)} swipeActions={getSwipeActions(task)} />)}</div>
         <div className="mb-6 hidden overflow-hidden rounded-2xl border border-border bg-card sm:block"><div className="grid grid-cols-[minmax(0,1fr)_130px_150px_100px] gap-4 border-b border-border bg-muted/30 px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"><span>Task</span><span>Assignee</span><span>Due date</span><span>Priority</span></div>{visibleTasks.map(task => <button key={task.id} onClick={() => handleTaskClick(task)} className="grid min-h-[78px] w-full grid-cols-[minmax(0,1fr)_130px_150px_100px] items-center gap-4 border-b border-border/60 px-5 py-4 text-left last:border-0 hover:bg-accent/25"><span className="min-w-0"><span className="block truncate text-sm font-semibold">{task.title}</span><span className="mt-1 block text-xs text-muted-foreground">{task.column.name}</span></span><span className="flex min-w-0 items-center gap-2 text-xs">{task.assigned_to_profile ? <><Avatar user={task.assigned_to_profile} size="sm" /><span className="truncate">{getUserDisplayName(task.assigned_to_profile)}</span></> : 'Unassigned'}</span><span className={cn('text-xs', taskIsOverdue(task, today) ? 'font-medium text-amber-700 dark:text-amber-400' : 'text-muted-foreground')}>{task.status === 'completed' ? 'Completed' : `${taskIsOverdue(task, today) ? 'Overdue · ' : ''}${taskDueLabel(task, today)}`}</span><span className={`priority-${task.priority} w-fit rounded-md px-2 py-1 text-[10px] capitalize`}>{task.priority}</span></button>)}</div>
       </>}
       <footer className="mt-auto flex items-center gap-2 border-t border-border/60 py-4 text-[11px] text-muted-foreground"><CheckCircle2 size={14} className="text-emerald-600" />{isPending ? 'Saving move…' : 'Open a task for details, files, and updates.'}</footer>

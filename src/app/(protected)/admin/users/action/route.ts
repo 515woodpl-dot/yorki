@@ -1,7 +1,7 @@
 import { revalidatePath } from 'next/cache'
 import { getSessionUser } from '@/lib/auth'
 import { isSameOrigin, seeOther } from '@/lib/form-post'
-import { createUser, deleteUser, setUserPassword, toggleUserActive, updateUserRole } from '@/lib/actions/settings'
+import { createUser, deleteUser, setUserPassword, toggleUserActive, updateUserCategoryAccess, updateUserRole } from '@/lib/actions/settings'
 
 /**
  * Every button on the Users page posts here as a plain HTML form, then comes back to the page
@@ -44,6 +44,11 @@ export async function POST(request: Request) {
       const count = deleted.data?.deletedTaskCount ?? 0
       notice = `Account deleted${count ? ` along with ${count} related task${count === 1 ? '' : 's'}` : ''}.`
     }
+  } else if (op === 'categories') {
+    const unrestricted = text('unrestricted') === '1'
+    const categoryIds = unrestricted ? null : form!.getAll('category').map(String)
+    result = await updateUserCategoryAccess(id, categoryIds)
+    notice = categoryIds === null ? 'Category access saved: all categories.' : `Category access saved: ${categoryIds.length} selected.`
   } else {
     return back({ error: 'Unknown action.' })
   }

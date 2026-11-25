@@ -322,20 +322,25 @@ export async function sendInviteEmail(
   fullName: string,
   role: string,
   inviteUrl: string
-): Promise<void> {
+): Promise<{ delivered: boolean; error?: string }> {
   try {
+    const { branding } = await getEmailConfig()
     const sent = await sendEmail({
       to,
-      subject: `You've been invited to Yorki`,
-      html: buildInviteHtml({ fullName, role, inviteUrl, appName: 'Yorki' }),
+      subject: `Set up your ${branding?.app_name ?? 'Yorki'} account`,
+      html: buildInviteHtml({ fullName, role, inviteUrl, appName: branding?.app_name ?? 'Yorki' }),
     })
 
     if (!sent) {
-      console.log(`\n📧 [Invite] ${escapeHtml(fullName)} <${to}>\n   Role: ${role}\n   URL:  ${inviteUrl}\n`)
-      return
+      return {
+        delivered: false,
+        error: 'Email delivery is not configured. Add RESEND_API_KEY and EMAIL_FROM to send invites.',
+      }
     }
+    return { delivered: true }
   } catch (err) {
     console.error('[Email: invite]', err)
+    return { delivered: false, error: 'The invitation email could not be sent. Check the email provider settings and try again.' }
   }
 }
 
@@ -348,23 +353,23 @@ function buildInviteHtml({
   return `<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
-<body style="margin:0;padding:0;font-family:'DM Sans',Arial,sans-serif;background:#F0F2F7;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 16px;">
+<body style="margin:0;padding:0;font-family:'DM Sans',Arial,sans-serif;background:#F6F3EE;color:#2F3650;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="padding:36px 16px;">
     <tr><td>
       <table width="520" align="center" cellpadding="0" cellspacing="0"
-        style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(47,54,80,0.10);">
+        style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:18px;overflow:hidden;box-shadow:0 14px 40px rgba(47,54,80,0.10);border:1px solid #E7DED2;">
 
         <!-- Header -->
         <tr>
-          <td style="background:linear-gradient(135deg,#2F3650 0%,#3A4A73 100%);padding:32px;text-align:center;">
-            <p style="margin:0 0 4px;color:#8896BA;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;">${escapeHtml(appName)}</p>
-            <h1 style="margin:0;color:#F0F2F7;font-size:22px;font-weight:600;letter-spacing:-0.3px;">You're invited</h1>
+          <td style="background:linear-gradient(135deg,#2F3650 0%,#47577A 100%);padding:32px 34px;text-align:center;">
+            <p style="margin:0 0 6px;color:#D9E2EE;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;">${escapeHtml(appName)}</p>
+            <h1 style="margin:0;color:#F6F3EE;font-size:24px;font-weight:700;letter-spacing:-0.03em;">Set up your account</h1>
           </td>
         </tr>
 
         <!-- Body -->
         <tr>
-          <td style="padding:36px 32px;">
+          <td style="padding:32px 34px;">
             <p style="margin:0 0 8px;color:#0F1220;font-size:16px;font-weight:600;">Hi ${escapeHtml(fullName)} 👋</p>
             <p style="margin:0 0 24px;color:#4E5F8C;font-size:14px;line-height:1.7;">
               You've been added to <strong>${escapeHtml(appName)}</strong> as a <strong>${roleLabel}</strong>.
@@ -372,8 +377,8 @@ function buildInviteHtml({
             </p>
 
             <!-- Role badge -->
-            <div style="display:inline-block;background:#EAF2FB;color:#1A64A8;border:1px solid #90BBE8;
-              font-size:11px;font-weight:600;padding:4px 12px;border-radius:99px;margin-bottom:28px;
+            <div style="display:inline-block;background:#EAF2FB;color:#2F3650;border:1px solid #C7D7E9;
+              font-size:11px;font-weight:700;padding:5px 10px;border-radius:999px;margin-bottom:28px;
               text-transform:uppercase;letter-spacing:0.08em;">
               ${roleLabel}
             </div>
@@ -381,8 +386,8 @@ function buildInviteHtml({
             <!-- CTA button -->
             <div style="text-align:center;margin:0 0 28px;">
               <a href="${inviteUrl}"
-                style="display:inline-block;background:#2F3650;color:#F0F2F7;text-decoration:none;
-                  padding:14px 36px;border-radius:10px;font-size:14px;font-weight:600;
+                style="display:inline-block;background:#A6784A;color:#F6F3EE;text-decoration:none;
+                  padding:14px 30px;border-radius:12px;font-size:14px;font-weight:700;
                   letter-spacing:0.01em;">
                 Set my password →
               </a>
@@ -398,7 +403,7 @@ function buildInviteHtml({
 
         <!-- Footer -->
         <tr>
-          <td style="background:#F0F2F7;padding:16px 32px;border-top:1px solid #D8DCE8;">
+          <td style="background:#FCFAF7;padding:16px 32px;border-top:1px solid #E7DED2;">
             <p style="margin:0;color:#8896BA;font-size:11px;text-align:center;">
               ${escapeHtml(appName)} · Internal workspace
             </p>
@@ -447,5 +452,44 @@ export async function sendMentionEmail({ task, recipient, author, snippet }: {
     if (!sent) console.log(`[Email disabled] Mention for ${recipient.email} on "${task.title}"`)
   } catch (err) {
     console.error('[Email: mention]', err)
+  }
+}
+
+/** Email a card participant about a new comment. Mentioned people get the mention email instead. */
+export async function sendCommentEmail({ task, recipient, author, snippet }: {
+  task: Task
+  recipient: { email: string | null }
+  author: SessionUser
+  snippet: string
+}): Promise<void> {
+  try {
+    if (!recipient.email) return
+    const { email: cfg, branding } = await getEmailConfig()
+    if (cfg?.notify_on_comment === false) return
+
+    const appName = branding?.app_name ?? 'Yorki'
+    const appUrl = (process.env.APP_URL ?? 'http://localhost:3000').replace(/\/$/, '')
+    const taskUrl = `${appUrl}/dashboard?task=${encodeURIComponent(task.id)}`
+    const authorName = author.full_name ?? author.email
+    const sent = await sendEmail({
+      to: recipient.email,
+      subject: `${cfg?.subject_prefix ?? '[Yorki]'} ${authorName} commented: ${task.title}`,
+      html: `<!DOCTYPE html><html><body style="margin:0;padding:0;font-family:Arial,sans-serif;background:#f4f4f5;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="padding:32px 16px;"><tr><td>
+  <table width="600" align="center" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:#fff;border-radius:12px;">
+  <tr><td style="background:#1e293b;padding:24px 32px;">
+    <p style="margin:0;color:#94a3b8;font-size:13px;">${escapeHtml(appName)}</p>
+    <h1 style="margin:4px 0 0;color:#f8fafc;font-size:20px;">New comment from ${escapeHtml(authorName)}</h1>
+  </td></tr>
+  <tr><td style="padding:32px;">
+    <p style="margin:0 0 8px;color:#475569;font-size:13px;">On <strong>${escapeHtml(task.title)}</strong></p>
+    <div style="background:#f8fafc;border-left:3px solid #6A97C4;border-radius:6px;padding:14px 16px;margin-bottom:24px;color:#0f172a;font-size:14px;white-space:pre-wrap;">${escapeHtml(snippet)}</div>
+    <a href="${escapeHtml(taskUrl)}" style="display:inline-block;background:#1e293b;color:#f8fafc;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;">Open the card →</a>
+  </td></tr>
+  </table></td></tr></table></body></html>`,
+    })
+    if (!sent) console.log(`[Email disabled] Comment for ${recipient.email} on "${task.title}"`)
+  } catch (err) {
+    console.error('[Email: comment]', err)
   }
 }

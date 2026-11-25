@@ -1,7 +1,8 @@
 import Link from 'next/link'
 import { getSessionUser } from '@/lib/auth'
-import { getAllUsersAction } from '@/lib/actions/settings'
+import { getAllUsersAction, getUserCategoryAccess } from '@/lib/actions/settings'
 import { BASE_PATH } from '@/lib/form-post'
+import { DEFAULT_BOARD_ID, getActiveColumns } from '@/lib/local-data'
 import { getUserDisplayName } from '@/lib/utils'
 
 const input = 'h-10 w-full rounded-lg border border-input bg-background px-3 text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-primary/50'
@@ -22,7 +23,9 @@ export default async function UsersPage({
   searchParams: Promise<{ notice?: string; error?: string; password?: string; delete?: string }>
 }) {
   const { notice, error, password, delete: deleting } = await searchParams
-  const [users, me] = await Promise.all([getAllUsersAction(), getSessionUser()])
+  const [users, me, categories, categoryAccess] = await Promise.all([
+    getAllUsersAction(), getSessionUser(), getActiveColumns(DEFAULT_BOARD_ID, false), getUserCategoryAccess(),
+  ])
   const passwordFor = users.find((u) => u.id === password)
   const deleteFor = users.find((u) => u.id === deleting)
 
@@ -93,6 +96,25 @@ export default async function UsersPage({
                   </>
                 )}
               </div>
+               {user.role !== 'super_admin' && !isMe && !locked && (
+                 <details className="rounded-lg border border-border/70 p-3">
+                   <summary className="min-h-10 cursor-pointer text-xs font-medium">
+                     Visible categories: {categoryAccess[user.id] === null ? 'All' : `${categoryAccess[user.id]?.length ?? 0} selected`}
+                   </summary>
+                   <Post className="mt-2 space-y-2">
+                     <input type="hidden" name="op" value="categories" /><input type="hidden" name="id" value={user.id} />
+                     <label className="flex items-center gap-2 text-xs"><input type="checkbox" name="unrestricted" value="1" defaultChecked={categoryAccess[user.id] === null} /> Allow all categories</label>
+                     <div className="grid gap-2 sm:grid-cols-2">
+                       {categories.map((category) => (
+                         <label key={category.id} className="flex items-center gap-2 text-xs">
+                           <input type="checkbox" name="category" value={category.id} defaultChecked={categoryAccess[user.id]?.includes(category.id) ?? false} /> {category.name}
+                         </label>
+                       ))}
+                     </div>
+                     <button type="submit" className={primary}>Save category access</button>
+                   </Post>
+                 </details>
+               )}
             </li>
           )
         })}

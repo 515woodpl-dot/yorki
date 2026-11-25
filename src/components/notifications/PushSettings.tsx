@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { AlertTriangle, BellOff, BellRing, CheckCircle2, Info, Loader2, Share, Smartphone, Trash2 } from 'lucide-react'
 import {
-  disablePush, enablePush, endpointId, fetchPushState, readPushStatus, removeDevice, savePushPrefs, sendTestPush,
+  disablePush, enablePush, endpointId, fetchPushState, readPushStatus, reconcilePushSubscription, removeDevice, savePushPrefs, sendTestPush,
   type PushPrefsState, type PushServerState, type PushStatus,
 } from '@/lib/push/client'
 import { cn, formatDate, formatRelativeDate } from '@/lib/utils'
@@ -45,6 +45,10 @@ export default function PushSettings() {
 
   const refresh = useCallback(async () => {
     try {
+      const nextServer = await fetchPushState()
+      // Permission can remain granted while Yorki's server-side device row has disappeared.
+      // Re-save (or recreate) it so "On" always means alerts are actually deliverable.
+      await reconcilePushSubscription(nextServer.publicKey)
       setServer(await fetchPushState())
       setLoadError(null)
     } catch (error) {
