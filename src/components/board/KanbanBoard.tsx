@@ -19,7 +19,7 @@ import {
 } from '@dnd-kit/core'
 import { arrayMove } from '@dnd-kit/sortable'
 import { toast } from 'sonner'
-import { Plus, Search, X, LayoutDashboard, List, CalendarDays, FolderOpen, Clock3, AlertTriangle, CheckCircle2, SlidersHorizontal } from 'lucide-react'
+import { Plus, Search, X, LayoutDashboard, List, CalendarDays, FolderOpen, Clock3, AlertTriangle, CheckCircle2, SlidersHorizontal, Loader2 } from 'lucide-react'
 import { completeTask, deleteTask, getBoardSnapshot, moveTask, setTaskLocked } from '@/lib/actions/tasks'
 import { cn, isTaskAssignedToUser, getCurrentDateInAppTimeZone, getAssignedUserIds, getUserDisplayName } from '@/lib/utils'
 import { reportActionFailure, useBoardStream } from '@/lib/live/client'
@@ -705,7 +705,7 @@ export default function KanbanBoard({ initialColumns, currentUser, initialSeq = 
   }, [runWrite])
 
   return (
-    <div className={cn('flex min-w-0 flex-1 flex-col px-4 pt-4 sm:px-7 lg:pt-5', view === 'board' && totalMatches > 0 && 'lg:h-dvh lg:flex-none lg:overflow-hidden')}>
+    <div className={cn('flex min-w-0 flex-1 flex-col px-4 pb-4 pt-4 sm:px-7 lg:pb-3 lg:pt-5', view === 'board' && totalMatches > 0 && 'lg:h-dvh lg:flex-none lg:overflow-hidden')}>
       <div className="mb-3 flex flex-wrap items-center gap-2 lg:mb-4">
         <div className="relative w-full overflow-hidden rounded-2xl bg-gradient-to-br from-[#203a70] via-[#284b85] to-[#3979a8] px-4 py-3 text-white shadow-md shadow-[#1f3154]/15 sm:px-5 lg:w-auto lg:shrink-0 lg:py-2">
           <div aria-hidden="true" className="pointer-events-none absolute -right-10 -top-24 h-48 w-48 rounded-full border-[32px] border-white/[0.05]" />
@@ -746,7 +746,7 @@ export default function KanbanBoard({ initialColumns, currentUser, initialSeq = 
         <div className="space-y-3 pb-5 sm:hidden">{visibleTasks.map(task => <TaskCard key={task.id} task={task} currentUser={currentUser} draggable={false} onClick={() => handleTaskClick(task)} swipeActions={getSwipeActions(task)} onToggleLock={getLockAction(task)?.onToggleLock} lockBusy={lockingTaskId === task.id} />)}</div>
         <div className="mb-6 hidden overflow-hidden rounded-2xl border border-border bg-card sm:block"><div className="grid grid-cols-[minmax(0,1fr)_130px_150px_100px] gap-4 border-b border-border bg-muted/30 px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"><span>Task</span><span>Assignee</span><span>Due date</span><span>Priority</span></div>{visibleTasks.map(task => <button key={task.id} onClick={() => handleTaskClick(task)} className="grid min-h-[78px] w-full grid-cols-[minmax(0,1fr)_130px_150px_100px] items-center gap-4 border-b border-border/60 px-5 py-4 text-left last:border-0 hover:bg-accent/25"><span className="min-w-0"><span className="flex items-center gap-2 truncate text-sm font-semibold">{task.fresh && <span aria-label={task.fresh === 'new' ? 'New' : 'Updated'} className={cn('h-2 w-2 shrink-0 animate-pulse rounded-full', task.fresh === 'new' ? 'bg-primary' : 'bg-amber-500')} />}<span className="truncate">{task.title}</span></span><span className="mt-1 block text-xs text-muted-foreground">{task.column.name}</span></span><span className="flex min-w-0 items-center gap-2 text-xs">{task.assigned_to_profile ? <><Avatar user={task.assigned_to_profile} size="sm" /><span className="truncate">{getUserDisplayName(task.assigned_to_profile)}</span></> : 'Unassigned'}</span><span className={cn('text-xs', taskIsOverdue(task, today) ? 'font-medium text-amber-700 dark:text-amber-400' : 'text-muted-foreground')}>{task.status === 'completed' ? 'Completed' : `${taskIsOverdue(task, today) ? 'Overdue · ' : ''}${taskDueLabel(task, today)}`}</span><span className={`priority-${task.priority} w-fit rounded-md px-2 py-1 text-[10px] capitalize`}>{task.priority}</span></button>)}</div>
       </>}
-      <footer className="mt-auto flex items-center gap-2 border-t border-border/60 py-4 text-[11px] lg:py-2.5 text-muted-foreground"><CheckCircle2 size={14} className="text-emerald-600" />{isPending ? 'Saving move…' : 'Open a task for details, files, and updates.'}</footer>
+      {isPending && <div role="status" className="pointer-events-none fixed bottom-[calc(6rem+env(safe-area-inset-bottom))] right-4 z-30 flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground shadow-md lg:bottom-4"><Loader2 size={13} className="animate-spin" />Saving move…</div>}
       {selectedTask && <TaskDetailPanel task={selectedTask} currentUser={currentUser} columns={columns.map(({ tasks: _tasks, ...column }) => column)} onClose={() => { setSelectedTask(null); router.replace(dashboardUrl(), { scroll: false }) }} onUpdate={handleTaskUpdate} onRemove={handleTaskRemove} onMove={handleTaskMove} presence={presenceByTask.get(selectedTask.id) ?? []} runWrite={runWrite} onRefresh={refreshBoard} />}
     </div>
   )
