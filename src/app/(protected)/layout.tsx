@@ -10,12 +10,13 @@ import SessionTimeout from '@/components/auth/SessionTimeout'
 export default async function ProtectedLayout({ children }: { children: React.ReactNode }) {
   const user = await getSessionUser()
   if (!user) redirect('/login')
-  const navCollapsed = (await cookies()).get(NAV_COOKIE)?.value === 'collapsed'
+  // The menu auto-hides unless the person pinned it open.
+  const navPinned = (await cookies()).get(NAV_COOKIE)?.value === 'pinned'
 
   return (
     <div className="min-h-dvh bg-background flex flex-col">
       <SessionTimeout />
-      <AppShell user={user} initialCollapsed={navCollapsed}>{children}</AppShell>
+      <AppShell user={user} initialPinned={navPinned}>{children}</AppShell>
     </div>
   )
 }
