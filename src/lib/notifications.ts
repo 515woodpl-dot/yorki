@@ -202,3 +202,15 @@ export function markTaskNotificationsRead(userId: string, taskId: string) {
   getDb().prepare('UPDATE notifications SET read_at = ? WHERE user_id = ? AND task_id = ? AND read_at IS NULL')
     .run(new Date().toISOString(), userId, taskId)
 }
+
+/** Remember that this person has opened the card (it stops being highlighted). */
+export function markTaskViewed(userId: string, taskId: string) {
+  getDb().prepare('INSERT OR IGNORE INTO task_views (user_id, task_id, viewed_at) VALUES (?, ?, ?)')
+    .run(userId, taskId, new Date().toISOString())
+}
+
+/** IDs of the cards this person has opened. */
+export function getViewedTaskIds(userId: string): Set<string> {
+  const rows = getDb().prepare('SELECT task_id FROM task_views WHERE user_id = ?').all(userId) as Array<{ task_id: string }>
+  return new Set(rows.map((row) => row.task_id))
+}

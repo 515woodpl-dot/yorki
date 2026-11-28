@@ -156,12 +156,15 @@ export default function KanbanBoard({ initialColumns, currentUser, initialSeq = 
   const refreshTimerRef   = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const lastSeqRef        = useRef(initialSeq)
   const selectedIdRef     = useRef<string | null>(null)
+  const openedLocallyRef  = useRef(new Set<string>())
   selectedIdRef.current   = selectedTask?.id ?? null
 
   const applySnapshot = useCallback((snapshot: BoardSnapshot) => {
     if (snapshot.seq < lastSeqRef.current) return // older than what we already show
     lastSeqRef.current = snapshot.seq
-    setColumns(snapshot.columns)
+    // A card opened a moment ago may not be recorded on the server yet.
+    const opened = openedLocallyRef.current
+    setColumns(opened.size === 0 ? snapshot.columns : snapshot.columns.map(col => ({ ...col, tasks: col.tasks.map(task => task.unopened && opened.has(task.id) ? { ...task, unopened: false } : task) })))
     setPresence(snapshot.presence)
 
     const openId = selectedIdRef.current
@@ -515,6 +518,10 @@ export default function KanbanBoard({ initialColumns, currentUser, initialSeq = 
   }
 
   const handleTaskClick = useCallback((task: TaskWithRelations) => {
+    if (task.unopened) {
+      openedLocallyRef.current.add(task.id)
+      setColumns(prev => prev.map(col => ({ ...col, tasks: col.tasks.map(item => item.id === task.id ? { ...item, unopened: false } : item) })))
+    }
     setSelectedTask(task)
     router.replace(`/dashboard?task=${encodeURIComponent(task.id)}`, { scroll: false })
   }, [router])
@@ -564,7 +571,7 @@ export default function KanbanBoard({ initialColumns, currentUser, initialSeq = 
   }
 
   async function handleSwipeDelete(task: TaskWithRelations) {
-    if (swipeActionTaskId || !isAdmin || task.custom_fields?.locked === true) return
+    if (swipeActionTaskId || !canMoveTask(task) || task.custom_fields?.locked === true) return
     if (!window.confirm(`Permanently delete “${task.title}”? This cannot be undone.`)) return
     setSwipeActionTaskId(task.id)
     try {
@@ -585,7 +592,7 @@ export default function KanbanBoard({ initialColumns, currentUser, initialSeq = 
     const onComplete = !locked && task.status !== 'completed' && canMoveTask(task)
       ? () => { void handleSwipeComplete(task) }
       : undefined
-    const onDelete = !locked && isAdmin
+    const onDelete = !locked && canMoveTask(task)
       ? () => { void handleSwipeDelete(task) }
       : undefined
     return { onComplete, onDelete, busy: swipeActionTaskId === task.id }
@@ -672,21 +679,21 @@ export default function KanbanBoard({ initialColumns, currentUser, initialSeq = 
   }, [runWrite])
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col px-4 pt-6 sm:px-7 lg:pt-9">
-      <div className="relative mb-6 overflow-hidden rounded-3xl bg-gradient-to-br from-[#203a70] via-[#284b85] to-[#3979a8] px-5 py-6 text-white shadow-lg shadow-[#1f3154]/15 sm:px-8 sm:py-7">
-        <div aria-hidden="true" className="pointer-events-none absolute -right-10 -top-32 h-72 w-72 rounded-full border-[44px] border-white/[0.05]" />
-        <div className="relative flex flex-wrap items-end justify-between gap-5"><div><p className="mb-2 text-[10px] font-bold uppercase tracking-[0.2em] text-[#c7d9ee]">Golden Stone Works / Workspace</p><h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">{mine ? 'My tasks' : view === 'calendar' ? 'Calendar' : 'Team board'}</h1><p className="mt-2 text-sm text-white/75">{mine ? 'Your work, all in one place.' : view === 'calendar' ? 'A clear look at what’s coming next.' : 'Good work starts with a clear plan.'}</p></div>
-        <Link href="/submit" className="flex min-h-11 shrink-0 items-center gap-2 rounded-xl bg-white px-4 text-sm font-semibold text-[#1f3154] shadow-sm transition-colors hover:bg-blue-50 sm:px-5"><Plus size={18} />New task</Link></div>
+    <div className="flex min-w-0 flex-1 flex-col px-4 pt-4 sm:px-7 lg:pt-5">
+      <div className="relative mb-4 overflow-hidden rounded-2xl bg-gradient-to-br from-[#203a70] via-[#284b85] to-[#3979a8] px-4 py-3 text-white shadow-md shadow-[#1f3154]/15 sm:px-6 sm:py-3.5">
+        <div aria-hidden="true" className="pointer-events-none absolute -right-10 -top-24 h-48 w-48 rounded-full border-[32px] border-white/[0.05]" />
+        <div className="relative flex items-center justify-between gap-4"><div className="min-w-0"><p className="hidden text-[10px] font-bold uppercase tracking-[0.2em] text-[#c7d9ee] sm:block">Golden Stone Works / Workspace</p><h1 className="flex items-baseline gap-3 text-xl font-semibold tracking-tight sm:text-2xl"><span className="truncate">{mine ? 'My tasks' : view === 'calendar' ? 'Calendar' : 'Team board'}</span><span className="hidden truncate text-sm font-normal text-white/70 md:inline">{mine ? 'Your work, all in one place.' : view === 'calendar' ? 'A clear look at what’s coming next.' : 'Good work starts with a clear plan.'}</span></h1></div>
+        <Link href="/submit" className="flex min-h-10 shrink-0 items-center gap-2 rounded-xl bg-white px-3.5 text-sm font-semibold text-[#1f3154] shadow-sm transition-colors hover:bg-blue-50 sm:px-4"><Plus size={17} />New task</Link></div>
       </div>
-      <div className="mb-6 grid grid-cols-2 gap-3 xl:grid-cols-4">
+      <div className="mb-4 grid grid-cols-4 gap-2 sm:grid-cols-2 sm:gap-3 xl:grid-cols-4">
         {[
           { label: 'Open', value: stats.open, icon: FolderOpen, color: 'text-primary', selected: statusFilter === 'open' && dueFilter === 'all', action: () => { setStatusFilter('open'); setDueFilter('all') } },
-          { label: 'Due today', value: stats.today, icon: Clock3, color: 'text-blue-600 dark:text-blue-400', selected: dueFilter === 'today', action: () => { setDueFilter('today'); setStatusFilter('all') } },
+          { label: 'Due today', short: 'Today', value: stats.today, icon: Clock3, color: 'text-blue-600 dark:text-blue-400', selected: dueFilter === 'today', action: () => { setDueFilter('today'); setStatusFilter('all') } },
           { label: 'Overdue', value: stats.overdue, icon: AlertTriangle, color: 'text-amber-700 dark:text-amber-400', selected: dueFilter === 'overdue', action: () => { setDueFilter('overdue'); setStatusFilter('all') } },
-          { label: 'Completed this week', value: stats.completed, icon: CheckCircle2, color: 'text-emerald-700 dark:text-emerald-400', selected: statusFilter === 'completed', action: () => { setStatusFilter('completed'); setDueFilter('all') } },
-        ].map(({ label, value, icon: Icon, color, selected, action }, index) => <button key={label} type="button" onClick={action} aria-pressed={selected} aria-label={`${label}: ${value}`} className={cn('group flex min-h-[100px] items-start justify-between rounded-2xl border bg-gradient-to-br p-4 text-left shadow-[0_5px_16px_-8px_rgba(35,67,115,0.25)] transition-all hover:-translate-y-0.5 hover:shadow-[0_10px_22px_-9px_rgba(35,67,115,0.32)] dark:border-border dark:from-slate-800 dark:to-slate-900 sm:min-h-[116px] sm:p-5', index === 0 ? 'border-indigo-200 from-white via-indigo-50 to-indigo-100' : index === 1 ? 'border-blue-200 from-white via-blue-50 to-sky-100' : index === 2 ? 'border-amber-200 from-white via-amber-50 to-amber-100' : 'border-emerald-200 from-white via-emerald-50 to-teal-100', selected && 'ring-2 ring-primary/50')}><span><span className="block text-xs font-medium text-muted-foreground">{label}</span><span className="mt-2 block text-3xl font-semibold tracking-tight tabular-nums">{value}</span></span><span className={cn('rounded-xl bg-white/80 p-2.5 shadow-sm dark:bg-white/10', color)}><Icon size={19} strokeWidth={1.8} /></span></button>)}
+          { label: 'Completed this week', short: 'Done', value: stats.completed, icon: CheckCircle2, color: 'text-emerald-700 dark:text-emerald-400', selected: statusFilter === 'completed', action: () => { setStatusFilter('completed'); setDueFilter('all') } },
+        ].map(({ label, short, value, icon: Icon, color, selected, action }: { label: string; short?: string; value: number; icon: typeof FolderOpen; color: string; selected: boolean; action: () => void }, index) => <button key={label} type="button" onClick={action} aria-pressed={selected} aria-label={`${label}: ${value}`} className={cn('group flex items-center justify-between gap-2 rounded-xl border bg-gradient-to-br px-2.5 py-2 text-left sm:px-3.5 shadow-[0_4px_12px_-8px_rgba(35,67,115,0.25)] transition-all hover:-translate-y-0.5 hover:shadow-[0_10px_22px_-9px_rgba(35,67,115,0.32)] dark:border-border dark:from-slate-800 dark:to-slate-900 sm:px-4 sm:py-3', index === 0 ? 'border-indigo-200 from-white via-indigo-50 to-indigo-100' : index === 1 ? 'border-blue-200 from-white via-blue-50 to-sky-100' : index === 2 ? 'border-amber-200 from-white via-amber-50 to-amber-100' : 'border-emerald-200 from-white via-emerald-50 to-teal-100', selected && 'ring-2 ring-primary/50')}><span className="min-w-0"><span className="block truncate text-[11px] font-medium text-muted-foreground sm:text-xs"><span className="sm:hidden">{short ?? label}</span><span className="hidden sm:inline">{label}</span></span><span className="block text-xl font-semibold leading-tight tracking-tight tabular-nums sm:text-2xl">{value}</span></span><span className={cn('hidden shrink-0 rounded-lg bg-white/80 p-2 shadow-sm dark:bg-white/10 sm:block', color)}><Icon size={17} strokeWidth={1.8} /></span></button>)}
       </div>
-      <div className="mb-5 flex flex-wrap items-center gap-2">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
         <div className="relative min-w-[180px] flex-1 sm:max-w-md"><Search size={17} className="absolute left-3 top-3 text-muted-foreground" /><input aria-label="Search tasks" type="search" placeholder="Search tasks, people, or notes" value={searchQuery} onChange={event => setSearchQuery(event.target.value)} className="h-11 w-full rounded-xl border border-border bg-card pl-10 pr-9 text-sm placeholder:text-muted-foreground focus:border-primary" />{searchQuery && <button aria-label="Clear search" onClick={() => setSearchQuery('')} className="absolute right-1 top-1 flex h-9 w-8 items-center justify-center text-muted-foreground"><X size={15} /></button>}</div>
         <QuickAdd people={people} currentUserId={currentUser.id} isAdmin={currentUser.role === 'admin' || currentUser.role === 'super_admin'} onCreated={() => { void refreshBoard() }} />
         <div aria-label="View" className="flex h-11 coarse:h-auto rounded-xl border border-border bg-card p-1 sm:order-last sm:ml-auto">{[{ key: 'board', label: 'Board', icon: LayoutDashboard }, { key: 'list', label: 'List', icon: List }, { key: 'calendar', label: 'Calendar', icon: CalendarDays }].map(({ key, label, icon: Icon }) => <button key={key} aria-label={`${label} view`} aria-pressed={view === key} onClick={() => changeView(key)} className={cn('flex items-center gap-1.5 rounded-lg px-2.5 coarse:h-10 coarse:min-w-11 coarse:justify-center text-xs font-medium', view === key ? 'bg-blue-100/70 text-primary dark:bg-primary/15' : 'text-muted-foreground hover:bg-accent/40')}><Icon size={15} /><span className="hidden xl:inline">{label}</span></button>)}</div>
@@ -696,7 +703,7 @@ export default function KanbanBoard({ initialColumns, currentUser, initialSeq = 
           <AppSelect ariaLabel="Filter by due date" value={dueFilter} onValueChange={value => { setDueFilter(value); setStatusFilter('all') }} options={[{ value: 'all', label: 'Any due date' }, { value: 'today', label: 'Today' }, { value: 'overdue', label: 'Overdue' }, { value: 'upcoming', label: 'Upcoming' }]} className="hidden h-11 text-xs sm:inline-flex" />
         </div>
       </div>
-      <div className="mb-4 flex min-h-8 flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+      <div className="mb-3 flex min-h-8 flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
         <div className="flex gap-1 sm:hidden">{[{ key: 'all', label: 'All' }, { key: 'today', label: 'Today' }, { key: 'upcoming', label: 'Upcoming' }, { key: 'overdue', label: 'Overdue' }].map(({ key, label }) => <button key={key} onClick={() => { setDueFilter(key); setStatusFilter('all') }} aria-pressed={dueFilter === key} className={cn('min-h-10 min-w-11 rounded-lg px-3 font-medium', dueFilter === key ? 'bg-primary/10 text-primary' : 'hover:bg-accent/40')}>{label}</button>)}</div>
         <span aria-live="polite" className="hidden sm:inline">{totalMatches} task{totalMatches === 1 ? '' : 's'}{hasFilters ? ' matching your filters' : ' in this view'}</span>
         {hasFilters && <button onClick={resetFilters} className="flex min-h-9 items-center gap-1.5 rounded-lg px-2 hover:bg-accent/50"><X size={13} />Clear filters</button>}
@@ -704,14 +711,14 @@ export default function KanbanBoard({ initialColumns, currentUser, initialSeq = 
       </div>
       {totalMatches === 0 ? <div className="my-8 flex min-h-[240px] flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card/50 p-8 text-center"><CheckSquareIcon /><h2 className="mt-4 text-lg font-semibold">{hasFilters ? 'No tasks match these filters' : 'A little breathing room'}</h2><p className="mt-2 max-w-sm text-sm text-muted-foreground">{hasFilters ? 'Try another search or clear your filters to see more work.' : mine ? 'Tasks you create or are assigned to will appear here.' : 'Create a task to get your team’s next job moving.'}</p>{hasFilters ? <button onClick={resetFilters} className="mt-5 min-h-11 rounded-xl bg-primary px-5 text-sm font-medium text-primary-foreground">Clear filters</button> : <Link href="/submit" className="mt-5 min-h-11 rounded-xl bg-primary px-5 py-3 text-sm font-medium text-primary-foreground">Create a task</Link>}</div> : view === 'board' ? <>
         <div className="mb-4 flex gap-2 overflow-x-auto pb-1 sm:hidden">{filteredColumns.map(column => <button key={column.id} onClick={() => setMobileColumnId(column.id)} className={cn('min-h-11 shrink-0 rounded-xl border px-4 text-xs font-semibold', visibleMobileColumnId === column.id ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card')}>{column.name} ({column.tasks.length})</button>)}</div>
-        <div className="min-h-[350px] flex-1 overflow-x-auto pb-5 lg:h-[calc(100dvh-340px)] lg:flex-none board-scroll"><DndContext sensors={isMobile ? [] : sensors} collisionDetection={collisionDetectionStrategy} onDragStart={isMobile ? undefined : handleDragStart} onDragEnd={isMobile ? undefined : handleDragEnd} onDragCancel={handleDragCancel}>
+        <div className="min-h-[350px] flex-1 overflow-x-auto pb-5 lg:h-[calc(100dvh-280px)] lg:flex-none board-scroll"><DndContext sensors={isMobile ? [] : sensors} collisionDetection={collisionDetectionStrategy} onDragStart={isMobile ? undefined : handleDragStart} onDragEnd={isMobile ? undefined : handleDragEnd} onDragCancel={handleDragCancel}>
           {isMobile ? <div className="flex h-full">{filteredColumns.filter(column => column.id === visibleMobileColumnId).map(column => <BoardColumn key={column.id} column={column} currentUser={currentUser} onTaskClick={handleTaskClick} presenceByTask={presenceByTask} getSwipeActions={getSwipeActions} />)}</div> :
           <div className="flex h-full min-w-max gap-4 xl:min-w-0">{filteredColumns.map(column => <BoardColumn key={column.id} column={column} currentUser={currentUser} onTaskClick={handleTaskClick} presenceByTask={presenceByTask} />)}</div>}
           <DragOverlay dropAnimation={{ duration: 150, easing: 'ease-out' }}>{!isMobile && activeTask && <TaskCard task={activeTask} currentUser={currentUser} isDragging />}</DragOverlay>
         </DndContext></div>
       </> : view === 'calendar' ? <div className="space-y-5 pb-6">{Array.from(calendarGroups, ([day, tasks]) => <section key={day || 'undated'} className="rounded-2xl border border-border bg-card p-4 sm:p-5"><h2 className="mb-4 flex items-center gap-2 text-sm font-semibold"><CalendarDays size={17} className="text-primary" />{day ? `${day === today ? 'Today · ' : ''}${new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' }).format(new Date(`${day}T12:00:00Z`))}` : 'No due date'}<span className="ml-auto text-xs font-normal text-muted-foreground">{tasks.length} task{tasks.length === 1 ? '' : 's'}</span></h2><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{tasks.map(task => <TaskCard key={task.id} task={task} currentUser={currentUser} draggable={false} onClick={() => handleTaskClick(task)} swipeActions={isMobile ? getSwipeActions(task) : undefined} />)}</div></section>)}</div> : <>
         <div className="space-y-3 pb-5 sm:hidden">{visibleTasks.map(task => <TaskCard key={task.id} task={task} currentUser={currentUser} draggable={false} onClick={() => handleTaskClick(task)} swipeActions={getSwipeActions(task)} />)}</div>
-        <div className="mb-6 hidden overflow-hidden rounded-2xl border border-border bg-card sm:block"><div className="grid grid-cols-[minmax(0,1fr)_130px_150px_100px] gap-4 border-b border-border bg-muted/30 px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"><span>Task</span><span>Assignee</span><span>Due date</span><span>Priority</span></div>{visibleTasks.map(task => <button key={task.id} onClick={() => handleTaskClick(task)} className="grid min-h-[78px] w-full grid-cols-[minmax(0,1fr)_130px_150px_100px] items-center gap-4 border-b border-border/60 px-5 py-4 text-left last:border-0 hover:bg-accent/25"><span className="min-w-0"><span className="block truncate text-sm font-semibold">{task.title}</span><span className="mt-1 block text-xs text-muted-foreground">{task.column.name}</span></span><span className="flex min-w-0 items-center gap-2 text-xs">{task.assigned_to_profile ? <><Avatar user={task.assigned_to_profile} size="sm" /><span className="truncate">{getUserDisplayName(task.assigned_to_profile)}</span></> : 'Unassigned'}</span><span className={cn('text-xs', taskIsOverdue(task, today) ? 'font-medium text-amber-700 dark:text-amber-400' : 'text-muted-foreground')}>{task.status === 'completed' ? 'Completed' : `${taskIsOverdue(task, today) ? 'Overdue · ' : ''}${taskDueLabel(task, today)}`}</span><span className={`priority-${task.priority} w-fit rounded-md px-2 py-1 text-[10px] capitalize`}>{task.priority}</span></button>)}</div>
+        <div className="mb-6 hidden overflow-hidden rounded-2xl border border-border bg-card sm:block"><div className="grid grid-cols-[minmax(0,1fr)_130px_150px_100px] gap-4 border-b border-border bg-muted/30 px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"><span>Task</span><span>Assignee</span><span>Due date</span><span>Priority</span></div>{visibleTasks.map(task => <button key={task.id} onClick={() => handleTaskClick(task)} className="grid min-h-[78px] w-full grid-cols-[minmax(0,1fr)_130px_150px_100px] items-center gap-4 border-b border-border/60 px-5 py-4 text-left last:border-0 hover:bg-accent/25"><span className="min-w-0"><span className="flex items-center gap-2 truncate text-sm font-semibold">{task.unopened && <span aria-label="Not opened yet" className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-primary" />}<span className="truncate">{task.title}</span></span><span className="mt-1 block text-xs text-muted-foreground">{task.column.name}</span></span><span className="flex min-w-0 items-center gap-2 text-xs">{task.assigned_to_profile ? <><Avatar user={task.assigned_to_profile} size="sm" /><span className="truncate">{getUserDisplayName(task.assigned_to_profile)}</span></> : 'Unassigned'}</span><span className={cn('text-xs', taskIsOverdue(task, today) ? 'font-medium text-amber-700 dark:text-amber-400' : 'text-muted-foreground')}>{task.status === 'completed' ? 'Completed' : `${taskIsOverdue(task, today) ? 'Overdue · ' : ''}${taskDueLabel(task, today)}`}</span><span className={`priority-${task.priority} w-fit rounded-md px-2 py-1 text-[10px] capitalize`}>{task.priority}</span></button>)}</div>
       </>}
       <footer className="mt-auto flex items-center gap-2 border-t border-border/60 py-4 text-[11px] text-muted-foreground"><CheckCircle2 size={14} className="text-emerald-600" />{isPending ? 'Saving move…' : 'Open a task for details, files, and updates.'}</footer>
       {selectedTask && <TaskDetailPanel task={selectedTask} currentUser={currentUser} columns={columns.map(({ tasks: _tasks, ...column }) => column)} onClose={() => { setSelectedTask(null); router.replace(dashboardUrl(), { scroll: false }) }} onUpdate={handleTaskUpdate} onRemove={handleTaskRemove} onMove={handleTaskMove} presence={presenceByTask.get(selectedTask.id) ?? []} runWrite={runWrite} onRefresh={refreshBoard} />}

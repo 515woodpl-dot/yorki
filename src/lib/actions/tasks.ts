@@ -31,7 +31,7 @@ import type {
   MoveTaskInput, SessionUser, Task, TaskExpectation, TaskStatus, TaskWithRelations, UpdateTaskInput,
 } from '@/lib/types'
 import { expectationGuard } from '@/lib/collab'
-import { notifyAssigned, notifyCompleted } from '@/lib/notifications'
+import { getViewedTaskIds, notifyAssigned, notifyCompleted } from '@/lib/notifications'
 
 /** Notifications are best-effort: never fail the user's action because of them. */
 function safeNotify(fn: () => void) {
@@ -252,6 +252,9 @@ async function loadVisibleColumns(user: SessionUser, boardId: string): Promise<C
     : tasks
   // Internal notes are admin-only — never ship them to staff browsers.
   const includeInternal = isAdminUser(user)
+  const viewed = getViewedTaskIds(user.id)
+  const isUnopened = (task: Task) =>
+    !viewed.has(task.id) && task.submitted_by !== user.id && task.status !== 'completed'
 
   return Promise.all(
     visibleColumns.map(async col => ({
@@ -260,7 +263,7 @@ async function loadVisibleColumns(user: SessionUser, boardId: string): Promise<C
         visibleTasks
           .filter(t => t.column_id === col.id)
           .sort((a, b) => a.position - b.position)
-          .map((task) => hydrateTask(task, includeInternal))
+          .map(async (task) => ({ ...(await hydrateTask(task, includeInternal)), unopened: isUnopened(task) }))
       ),
     }))
   )
@@ -778,9 +781,10 @@ export async function restoreTask(taskId: string, targetColumnId: string): Promi
 
 export async function deleteTask(taskId: string, expected?: TaskExpectation): Promise<ActionResult> {
   try {
-    const user = await requireRole('admin', 'super_admin')
+    const user = await requireRole('staff', 'admin', 'super_admin')
     const task = await getTaskById(taskId)
-    if (task && !(await canSeeTask(user, task))) throw new Error('Task not found.')
+    // Admins may delete any card; everyone else, the cards they submitted or are assigned to.
+    if (task && (!(await canSeeTask(user, task)) || !canWorkOnTask(user, task))) throw new Error('Task not found.')
     if (!task) throw new Error('This card no longer exists — it may have been deleted.')
     if (lockedReason(task)) throw new Error('Unlock this card before deleting it.')
 

@@ -207,6 +207,8 @@ export interface TaskWithRelations extends Task {
   attachments: Attachment[]
   _comment_count: number
   _attachment_count: number
+  /** True when the viewer has never opened this card (and didn't create it). */
+  unopened?: boolean
 }
 
 export interface CommentWithAuthor extends Comment {

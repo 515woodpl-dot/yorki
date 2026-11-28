@@ -7,7 +7,7 @@ import {
   getMentionCandidates,
   listNotifications,
   markNotificationsRead,
-  markTaskNotificationsRead,
+  markTaskNotificationsRead, markTaskViewed,
   userCanAccessTask,
 } from '@/lib/notifications'
 import type { AppNotification, MentionableUser } from '@/lib/types'
@@ -27,7 +27,10 @@ export async function markMyNotificationsRead(ids?: string[]): Promise<void> {
 export async function markTaskSeen(taskId: string): Promise<void> {
   const user = await requireRole('staff', 'admin', 'super_admin')
   const task = await getTaskById(taskId)
-  if (task && await canSeeTask(user, task)) markTaskNotificationsRead(user.id, taskId)
+  if (task && await canSeeTask(user, task)) {
+    markTaskNotificationsRead(user.id, taskId)
+    markTaskViewed(user.id, taskId)
+  }
 }
 
 /** People who can be @mentioned on this card (those who can open it). */

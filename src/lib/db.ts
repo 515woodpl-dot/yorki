@@ -289,6 +289,25 @@ function migrate(db: Database.Database) {
     );
   `)
 
+  // Which cards each person has opened, so unopened ones can be highlighted.
+  // First time only: count every existing card as opened, so only cards that
+  // arrive from now on light up.
+  const hasTaskViews = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'task_views'").get()
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS task_views (
+      user_id   TEXT NOT NULL,
+      task_id   TEXT NOT NULL,
+      viewed_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, task_id)
+    );
+  `)
+  if (!hasTaskViews) {
+    db.prepare(`
+      INSERT OR IGNORE INTO task_views (user_id, task_id, viewed_at)
+        SELECT users.id, tasks.id, ? FROM users CROSS JOIN tasks WHERE tasks.deleted_at IS NULL
+    `).run(new Date().toISOString())
+  }
+
   // One-time move: nicknames learned per person (before team-wide memory) become their votes.
   db.exec(`
     INSERT OR IGNORE INTO quick_add_alias_votes (key, person_id, user_id, updated_at)

@@ -122,7 +122,7 @@ function loadTs(file, dependencies = {}) {
   }).outputText
   vm.runInNewContext(source, { exports, process, console, Buffer, require(name) {
     if (name === '@/lib/collab') return loadTs('src/lib/collab.ts', dependencies)
-    if (name === '@/lib/notifications') return { notifyAssigned() {}, notifyCompleted() {} }
+    if (name === '@/lib/notifications') return { notifyAssigned() {}, notifyCompleted() {}, getViewedTaskIds() { return new Set() } }
     return Object.hasOwn(dependencies, name) ? dependencies[name] : require(name)
   } })
   return exports
@@ -181,6 +181,43 @@ test('staff board excludes unrelated tasks and internal notes; edits preserve as
   assert.equal(saved.custom_fields.address, 'new')
   assert.equal(saved.custom_fields.share_token, 'secret')
   assert.deepEqual(Array.from(saved.custom_fields.assigned_user_ids), ['other'])
+})
+
+test('staff can delete their own cards but not other people\'s; unopened cards are flagged', async () => {
+  const own = { id: 'own', board_id: 'board', column_id: 'inbox', status: 'new', submitted_by: 'staff', assigned_to: null, custom_fields: {} }
+  const other = { ...own, id: 'other', submitted_by: 'boss' }
+  const fresh = { ...own, id: 'fresh', submitted_by: 'boss', assigned_to: 'staff' }
+  const tasks = { own, other, fresh }
+  const deleted = []
+  const actions = loadTs('src/lib/actions/tasks.ts', {
+    'next/cache': { revalidatePath() {} },
+    '@/lib/category-access': { canSeeCategory: async () => true, canSeeTask: async () => true },
+    '@/lib/auth': { requireRole: async () => ({ id: 'staff', role: 'staff', email: 'staff@example.com' }) },
+    '@/lib/local-data': {
+      DEFAULT_BOARD_ID: 'board',
+      getActiveColumns: async () => [{ id: 'inbox', board_id: 'board' }],
+      getActiveTasks: async () => [own, fresh],
+      getTaskComments: async () => [],
+      getTaskAttachments: async () => [],
+      findUser: () => null,
+      getTaskById: async (id) => tasks[id],
+      softDeleteTask: async (id) => { deleted.push(id); return true },
+      createActivityLog: async () => {},
+      recordBoardEvent: () => {},
+    },
+    '@/lib/notifications': { notifyAssigned() {}, notifyCompleted() {}, getViewedTaskIds: () => new Set(['own']) },
+    './email': {},
+    '@/lib/integrations/google-calendar': { deleteGoogleCalendarEvent: async () => ({ status: 'skipped' }) },
+    '@/lib/utils': { getAssignedUserIds: () => [], isTaskAssignedToUser: (task, id) => task.assigned_to === id },
+  })
+  assert.equal((await actions.deleteTask('other')).success, false)
+  assert.deepEqual(deleted, [])
+  assert.equal((await actions.deleteTask('own')).success, true)
+  assert.deepEqual(deleted, ['own'])
+
+  const board = await actions.getBoardData()
+  const flags = Object.fromEntries(board.columns[0].tasks.map((task) => [task.id, task.unopened]))
+  assert.deepEqual(flags, { own: false, fresh: true })
 })
 
 test('backup captures committed WAL data and private uploads and restores independently', async () => {
