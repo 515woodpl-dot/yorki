@@ -60,7 +60,7 @@ export default function BoardColumn({ column, currentUser, onTaskClick, presence
         style={{ minHeight: 120 }}
       >
         <SortableContext id={column.id} items={taskIds} strategy={verticalListSortingStrategy}>
-          <div className="space-y-3">
+          <div className="space-y-3 pb-10">
             {column.tasks.map(task => (
               <TaskCard
                 key={task.id}
