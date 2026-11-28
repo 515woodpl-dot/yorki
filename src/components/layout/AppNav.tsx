@@ -2,8 +2,8 @@
 
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
-import { useState } from 'react'
-import { LayoutDashboard, Plus, Archive, Settings, LogOut, ChevronDown, CalendarDays, CheckSquare, Users, Bell, RefreshCw, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { LayoutDashboard, Plus, Archive, Settings, LogOut, ChevronDown, CalendarDays, CheckSquare, Users, Bell, RefreshCw, Pin, PinOff } from 'lucide-react'
 import { cn, getUserInitials, getUserDisplayName } from '@/lib/utils'
 import type { SessionUser } from '@/lib/types'
 import BrandLogo from '@/components/brand/BrandLogo'
@@ -18,7 +18,20 @@ const mainLinks = [
   { href: '/dashboard?view=calendar', label: 'Calendar', icon: CalendarDays, key: 'calendar' },
 ]
 
-export default function AppNav({ user, collapsed = false, onToggleCollapsed }: { user: SessionUser; collapsed?: boolean; onToggleCollapsed?: () => void }) {
+export default function AppNav({ user, collapsed = false, pinned = true, onTogglePinned, onPointerEnterMenu, onPointerLeaveMenu }: {
+  user: SessionUser
+  collapsed?: boolean
+  /** Pinned: always open. Otherwise the menu opens while hovered (or focused) and closes after. */
+  pinned?: boolean
+  onTogglePinned?: () => void
+  onPointerEnterMenu?: () => void
+  onPointerLeaveMenu?: () => void
+}) {
+  const asideRef = useRef<HTMLElement>(null)
+  // Closing the rail also closes the account menu, so it never hangs off the narrow strip.
+  useEffect(() => {
+    if (collapsed) asideRef.current?.querySelectorAll('details[open]').forEach((el) => el.removeAttribute('open'))
+  }, [collapsed])
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const [signingOut, setSigningOut] = useState(false)
@@ -57,10 +70,17 @@ export default function AppNav({ user, collapsed = false, onToggleCollapsed }: {
   )
 
   return <>
-    <aside aria-label="Side menu" className={cn('fixed inset-y-0 left-0 z-40 hidden flex-col border-r border-blue-200/70 bg-gradient-to-b from-[#f6faff] via-[#eaf3ff] to-[#dceaff] shadow-[4px_0_24px_-14px_rgba(35,67,115,0.3)] transition-[width] duration-200 dark:border-border dark:from-slate-900 dark:via-slate-900 dark:to-slate-800 lg:flex', collapsed ? 'w-[4.5rem]' : 'w-56')}>
-      <div className={cn('flex items-center pt-6', collapsed ? 'flex-col gap-3 px-2 pb-5' : 'justify-between gap-2 pb-7 pl-6 pr-3')}>
-        {!collapsed && <Link href="/dashboard" className="min-w-0"><Brand /></Link>}
-        <button type="button" onClick={onToggleCollapsed} aria-label={collapsed ? 'Expand side menu' : 'Collapse side menu'} aria-expanded={!collapsed} title={collapsed ? 'Expand menu' : 'Collapse menu'} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground">{collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</button>
+    <aside ref={asideRef} aria-label="Side menu"
+      onMouseEnter={onPointerEnterMenu}
+      onMouseLeave={onPointerLeaveMenu}
+      onFocus={onPointerEnterMenu}
+      onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) onPointerLeaveMenu?.() }}
+      className={cn('fixed inset-y-0 left-0 z-40 hidden flex-col border-r border-blue-200/70 bg-gradient-to-b from-[#f6faff] via-[#eaf3ff] to-[#dceaff] transition-[width,box-shadow] duration-200 dark:border-border dark:from-slate-900 dark:via-slate-900 dark:to-slate-800 lg:flex', collapsed ? 'w-[4.5rem]' : 'w-56', !pinned && !collapsed ? 'shadow-[8px_0_32px_-12px_rgba(35,67,115,0.45)]' : 'shadow-[4px_0_24px_-14px_rgba(35,67,115,0.3)]')}>
+      <div className={cn('flex h-[5.5rem] shrink-0 items-center', collapsed ? 'justify-center px-2' : 'justify-between gap-2 pl-6 pr-3')}>
+        {collapsed
+          ? <Link href="/dashboard" aria-label="Yorki dashboard" className="flex h-10 w-[27px] items-center justify-start overflow-hidden"><BrandLogo className="h-7 max-w-none" /></Link>
+          : <><Link href="/dashboard" className="min-w-0"><Brand /></Link>
+            <button type="button" onClick={onTogglePinned} aria-pressed={pinned} aria-label={pinned ? 'Unpin side menu (auto-hide)' : 'Pin side menu open'} title={pinned ? 'Auto-hide menu' : 'Keep menu open'} className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-accent/60 hover:text-foreground', pinned ? 'text-primary' : 'text-muted-foreground')}>{pinned ? <PinOff size={17} /> : <Pin size={17} />}</button></>}
       </div>
       <nav aria-label="Main navigation" className={cn('space-y-1', collapsed ? 'px-2' : 'px-4')}>
         {mainLinks.map(({ href, label, icon: Icon, key }) => <Link key={key} href={href} title={collapsed ? label : undefined} aria-current={active === key ? 'page' : undefined} className={sideClass(active === key)}><Icon size={19} />{sideLabel(label)}</Link>)}
