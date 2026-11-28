@@ -31,7 +31,7 @@ import type {
   MoveTaskInput, SessionUser, Task, TaskExpectation, TaskStatus, TaskWithRelations, UpdateTaskInput,
 } from '@/lib/types'
 import { expectationGuard } from '@/lib/collab'
-import { getViewedTaskIds, notifyAssigned, notifyCompleted } from '@/lib/notifications'
+import { getTaskViewTimes, notifyAssigned, notifyCompleted } from '@/lib/notifications'
 
 /** Notifications are best-effort: never fail the user's action because of them. */
 function safeNotify(fn: () => void) {
@@ -252,20 +252,32 @@ async function loadVisibleColumns(user: SessionUser, boardId: string): Promise<C
     : tasks
   // Internal notes are admin-only — never ship them to staff browsers.
   const includeInternal = isAdminUser(user)
-  const viewed = getViewedTaskIds(user.id)
-  const isUnopened = (task: Task) =>
-    !viewed.has(task.id) && task.submitted_by !== user.id && task.status !== 'completed'
+  const viewedAt = getTaskViewTimes(user.id)
+
+  // Cards someone else created or changed since you last opened them float to the top, highlighted.
+  const withFreshness = (task: TaskWithRelations): TaskWithRelations => {
+    const times: string[] = []
+    if (task.submitted_by !== user.id) times.push(task.created_at)
+    if ((task.updated_by ?? task.submitted_by) !== user.id) times.push(task.updated_at)
+    for (const comment of task.comments ?? []) if (comment.author_id !== user.id) times.push(comment.created_at)
+    const latest = times.sort().at(-1) ?? null
+    const seen = viewedAt.get(task.id)
+    const fresh = !seen ? (task.submitted_by !== user.id ? 'new' : null)
+      : latest && latest > seen ? 'updated' : null
+    return { ...task, fresh, fresh_at: fresh ? latest : null }
+  }
 
   return Promise.all(
-    visibleColumns.map(async col => ({
-      ...col,
-      tasks: await Promise.all(
+    visibleColumns.map(async col => {
+      const columnTasks = await Promise.all(
         visibleTasks
           .filter(t => t.column_id === col.id)
           .sort((a, b) => a.position - b.position)
-          .map(async (task) => ({ ...(await hydrateTask(task, includeInternal)), unopened: isUnopened(task) }))
-      ),
-    }))
+          .map(async (task) => withFreshness(await hydrateTask(task, includeInternal)))
+      )
+      const fresh = columnTasks.filter(task => task.fresh).sort((a, b) => (b.fresh_at ?? '').localeCompare(a.fresh_at ?? ''))
+      return { ...col, tasks: [...fresh, ...columnTasks.filter(task => !task.fresh)] }
+    })
   )
 }
 
@@ -626,7 +638,7 @@ export async function completeTask(taskId: string, expected?: TaskExpectation): 
     const task = await getTaskById(taskId)
     if (task && !(await canSeeTask(user, task))) throw new Error('Task not found.')
     if (!task) throw new Error('This card no longer exists — it may have been deleted.')
-    if (lockedReason(task)) throw new Error('Unlock this card before completing it.')
+    // A locked card can still be marked complete (it stays locked); everything else stays blocked.
     if (!canWorkOnTask(user, task)) throw new Error('You do not have permission to complete this task.')
 
     const columns      = await getActiveColumns(task.board_id, false)
@@ -639,9 +651,9 @@ export async function completeTask(taskId: string, expected?: TaskExpectation): 
     }), {
       actorId: user.id,
       guard: expectationGuard(expected, user.id, (cur) =>
-        lockedReason(cur) ?? (cur.status === 'archived' ? 'it was archived'
+        cur.status === 'archived' ? 'it was archived'
           : cur.status === 'completed' ? 'it is already completed'
-          : null)),
+          : null),
     })
     if (!updated) throw new Error('This card no longer exists — it may have been deleted.')
 

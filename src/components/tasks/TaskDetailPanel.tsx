@@ -94,7 +94,8 @@ export default function TaskDetailPanel({
   const isSuperAdmin = currentUser.role === 'admin' || currentUser.role === 'super_admin'
   const isLocked = task.custom_fields?.locked === true
   const canEditDetails = !isLocked && (isAdmin || task.submitted_by === currentUser.id || isTaskAssignedToUser(task, currentUser.id))
-  const canCompleteTask = canEditDetails
+  // Locking blocks edits, not completion.
+  const canCompleteTask = isAdmin || task.submitted_by === currentUser.id || isTaskAssignedToUser(task, currentUser.id)
 
   const [comments,    setComments]    = useState<CommentWithAuthor[]>([])
   const [attachments, setAttachments] = useState<Attachment[]>([])
@@ -1159,7 +1160,7 @@ export default function TaskDetailPanel({
               </button>
             )}
 
-            {canCompleteTask && task.status === 'completed' && (
+            {canEditDetails && task.status === 'completed' && (
               <button
                 onClick={handleReopen}
                 disabled={isPending}

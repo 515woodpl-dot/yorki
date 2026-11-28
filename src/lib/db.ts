@@ -289,7 +289,7 @@ function migrate(db: Database.Database) {
     );
   `)
 
-  // Which cards each person has opened, so unopened ones can be highlighted.
+  // Which cards each person has opened, and when, so new or changed ones can be highlighted.
   // First time only: count every existing card as opened, so only cards that
   // arrive from now on light up.
   const hasTaskViews = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'task_views'").get()

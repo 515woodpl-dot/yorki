@@ -203,14 +203,15 @@ export function markTaskNotificationsRead(userId: string, taskId: string) {
     .run(new Date().toISOString(), userId, taskId)
 }
 
-/** Remember that this person has opened the card (it stops being highlighted). */
+/** Remember when this person last opened the card (newer changes by others light it up again). */
 export function markTaskViewed(userId: string, taskId: string) {
-  getDb().prepare('INSERT OR IGNORE INTO task_views (user_id, task_id, viewed_at) VALUES (?, ?, ?)')
+  getDb().prepare(`INSERT INTO task_views (user_id, task_id, viewed_at) VALUES (?, ?, ?)
+    ON CONFLICT (user_id, task_id) DO UPDATE SET viewed_at = excluded.viewed_at`)
     .run(userId, taskId, new Date().toISOString())
 }
 
-/** IDs of the cards this person has opened. */
-export function getViewedTaskIds(userId: string): Set<string> {
-  const rows = getDb().prepare('SELECT task_id FROM task_views WHERE user_id = ?').all(userId) as Array<{ task_id: string }>
-  return new Set(rows.map((row) => row.task_id))
+/** When this person last opened each card (task id → ISO time). */
+export function getTaskViewTimes(userId: string): Map<string, string> {
+  const rows = getDb().prepare('SELECT task_id, viewed_at FROM task_views WHERE user_id = ?').all(userId) as Array<{ task_id: string; viewed_at: string }>
+  return new Map(rows.map((row) => [row.task_id, row.viewed_at]))
 }

@@ -3,7 +3,7 @@
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useRef, useState } from 'react'
-import { MessageSquare, Paperclip, CalendarDays, CheckSquare, CheckCircle2, ArrowUpRight, LockKeyhole, Trash2 } from 'lucide-react'
+import { MessageSquare, Paperclip, CalendarDays, CheckSquare, CheckCircle2, ArrowUpRight, LockKeyhole, LockKeyholeOpen, Trash2 } from 'lucide-react'
 import { cn, getPriorityConfig, getUserDisplayName, isTaskAssignedToUser, getCurrentDateInAppTimeZone } from '@/lib/utils'
 import { taskIsOverdue, taskDueLabel, taskDay } from '@/lib/board-view'
 import type { TaskWithRelations, SessionUser, TaskPresence } from '@/lib/types'
@@ -16,6 +16,9 @@ interface Props {
   draggable?: boolean
   onClick?: () => void
   presence?: TaskPresence[]
+  /** Admins: lock or unlock the card right from the board. */
+  onToggleLock?: () => void
+  lockBusy?: boolean
   swipeActions?: {
     onComplete?: () => void
     onDelete?: () => void
@@ -26,7 +29,7 @@ interface Props {
 const SWIPE_LIMIT = 96
 const SWIPE_TRIGGER = 68
 
-export default function TaskCard({ task, currentUser, isDragging = false, draggable = true, onClick, presence = [], swipeActions }: Props) {
+export default function TaskCard({ task, currentUser, isDragging = false, draggable = true, onClick, presence = [], swipeActions, onToggleLock, lockBusy = false }: Props) {
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super_admin'
   const locked = task.custom_fields?.locked === true
   const canMove = !locked && draggable && (isAdmin || task.submitted_by === currentUser.id || isTaskAssignedToUser(task, currentUser.id))
@@ -98,9 +101,14 @@ export default function TaskCard({ task, currentUser, isDragging = false, dragga
   }} {...(canMove ? attributes : {})} {...(canMove ? listeners : {})}
     role="button" tabIndex={0} aria-label={`Open task: ${task.title}`} onClick={open}
     onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); open() } }}
-    className={cn('group rounded-2xl border border-blue-200/70 bg-gradient-to-br from-white via-white to-blue-50/70 p-4 shadow-[0_4px_14px_-7px_rgba(35,67,115,0.25)] transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_10px_22px_-9px_rgba(35,67,115,0.32)] dark:border-border dark:from-slate-800 dark:via-slate-800 dark:to-slate-900', canMove ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer', sorting && 'opacity-30', isDragging && 'rotate-1 shadow-xl ring-2 ring-primary/30', swipeActions?.busy && 'pointer-events-none opacity-60', task.unopened && !isDragging && 'card-unopened')}>
+    className={cn('group rounded-2xl border border-blue-200/70 bg-gradient-to-br from-white via-white to-blue-50/70 p-4 shadow-[0_4px_14px_-7px_rgba(35,67,115,0.25)] transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_10px_22px_-9px_rgba(35,67,115,0.32)] dark:border-border dark:from-slate-800 dark:via-slate-800 dark:to-slate-900', canMove ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer', sorting && 'opacity-30', isDragging && 'rotate-1 shadow-xl ring-2 ring-primary/30', swipeActions?.busy && 'pointer-events-none opacity-60', task.fresh && !isDragging && 'card-unopened')}>
 
-    <div className="mb-1 flex items-start justify-between gap-2"><h3 className="line-clamp-2 text-[14px] font-semibold leading-snug tracking-tight text-foreground">{task.unopened && <span className="mr-1.5 inline-block -translate-y-px rounded-full bg-primary px-1.5 py-px align-middle text-[9px] font-bold uppercase tracking-wider text-primary-foreground">New</span>}{task.title}</h3>{locked ? <LockKeyhole size={16} aria-label="Locked" className="shrink-0 text-amber-600" /> : completed ? <CheckCircle2 size={18} className="shrink-0 text-emerald-600" /> : <ArrowUpRight size={16} className="shrink-0 text-muted-foreground/40 transition-colors group-hover:text-primary" />}</div>
+    <div className="mb-1 flex items-start justify-between gap-2"><h3 className="line-clamp-2 text-[14px] font-semibold leading-snug tracking-tight text-foreground">{task.fresh && <span className={cn('mr-1.5 inline-block -translate-y-px rounded-full px-1.5 py-px align-middle text-[9px] font-bold uppercase tracking-wider', task.fresh === 'new' ? 'bg-primary text-primary-foreground' : 'bg-amber-500 text-white')}>{task.fresh === 'new' ? 'New' : 'Updated'}</span>}{task.title}</h3>{onToggleLock && !isDragging ? <button type="button" aria-label={locked ? `Unlock card: ${task.title}` : `Lock card: ${task.title}`} title={locked ? 'Unlock card' : 'Lock card'} disabled={lockBusy}
+      onClick={event => { event.stopPropagation(); onToggleLock() }}
+      onPointerDown={event => event.stopPropagation()} onTouchStart={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}
+      className={cn('-m-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-[opacity,background-color] hover:bg-amber-100 focus-visible:opacity-100 disabled:opacity-50 dark:hover:bg-amber-950 coarse:-m-2 coarse:h-10 coarse:w-10', locked ? 'text-amber-600' : 'text-muted-foreground/60 opacity-0 group-hover:opacity-100 coarse:opacity-100')}>
+      {locked ? <LockKeyhole size={16} /> : <LockKeyholeOpen size={16} />}</button>
+      : locked ? <LockKeyhole size={16} aria-label="Locked" className="shrink-0 text-amber-600" /> : completed ? <CheckCircle2 size={18} className="shrink-0 text-emerald-600" /> : <ArrowUpRight size={16} className="shrink-0 text-muted-foreground/40 transition-colors group-hover:text-primary" />}</div>
     {presenceLabel && <span title={presence.map(entry => `${entry.user_name} is ${entry.mode}`).join('\n')} className="mb-2 inline-block rounded-md bg-blue-100 px-2 py-1 text-[10px] font-semibold text-blue-800">{presenceLabel}</span>}
     {(job || address) && <p className="mb-3 line-clamp-1 text-xs leading-5 text-muted-foreground">{[job, address].filter(Boolean).join(' · ')}</p>}
     {!job && !address && task.description && <p className="mb-3 line-clamp-2 text-xs leading-5 text-muted-foreground">{task.description}</p>}

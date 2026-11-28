@@ -20,7 +20,7 @@ import {
 import { arrayMove } from '@dnd-kit/sortable'
 import { toast } from 'sonner'
 import { Plus, Search, X, LayoutDashboard, List, CalendarDays, FolderOpen, Clock3, AlertTriangle, CheckCircle2, SlidersHorizontal } from 'lucide-react'
-import { completeTask, deleteTask, getBoardSnapshot, moveTask } from '@/lib/actions/tasks'
+import { completeTask, deleteTask, getBoardSnapshot, moveTask, setTaskLocked } from '@/lib/actions/tasks'
 import { cn, isTaskAssignedToUser, getCurrentDateInAppTimeZone, getAssignedUserIds, getUserDisplayName } from '@/lib/utils'
 import { reportActionFailure, useBoardStream } from '@/lib/live/client'
 import type { BoardSnapshot, ColumnWithTasks, TaskExpectation, TaskPresence, TaskWithRelations, SessionUser } from '@/lib/types'
@@ -156,7 +156,8 @@ export default function KanbanBoard({ initialColumns, currentUser, initialSeq = 
   const refreshTimerRef   = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const lastSeqRef        = useRef(initialSeq)
   const selectedIdRef     = useRef<string | null>(null)
-  const openedLocallyRef  = useRef(new Set<string>())
+  // Cards opened here, with the latest change they showed — the server may not have recorded the open yet.
+  const openedLocallyRef  = useRef(new Map<string, string>())
   selectedIdRef.current   = selectedTask?.id ?? null
 
   const applySnapshot = useCallback((snapshot: BoardSnapshot) => {
@@ -164,7 +165,7 @@ export default function KanbanBoard({ initialColumns, currentUser, initialSeq = 
     lastSeqRef.current = snapshot.seq
     // A card opened a moment ago may not be recorded on the server yet.
     const opened = openedLocallyRef.current
-    setColumns(opened.size === 0 ? snapshot.columns : snapshot.columns.map(col => ({ ...col, tasks: col.tasks.map(task => task.unopened && opened.has(task.id) ? { ...task, unopened: false } : task) })))
+    setColumns(opened.size === 0 ? snapshot.columns : snapshot.columns.map(col => ({ ...col, tasks: col.tasks.map(task => task.fresh && opened.has(task.id) && (task.fresh_at ?? '') <= (opened.get(task.id) ?? '') ? { ...task, fresh: null } : task) })))
     setPresence(snapshot.presence)
 
     const openId = selectedIdRef.current
@@ -518,9 +519,9 @@ export default function KanbanBoard({ initialColumns, currentUser, initialSeq = 
   }
 
   const handleTaskClick = useCallback((task: TaskWithRelations) => {
-    if (task.unopened) {
-      openedLocallyRef.current.add(task.id)
-      setColumns(prev => prev.map(col => ({ ...col, tasks: col.tasks.map(item => item.id === task.id ? { ...item, unopened: false } : item) })))
+    if (task.fresh) {
+      openedLocallyRef.current.set(task.id, task.fresh_at ?? '')
+      setColumns(prev => prev.map(col => ({ ...col, tasks: col.tasks.map(item => item.id === task.id ? { ...item, fresh: null } : item) })))
     }
     setSelectedTask(task)
     router.replace(`/dashboard?task=${encodeURIComponent(task.id)}`, { scroll: false })
@@ -555,7 +556,7 @@ export default function KanbanBoard({ initialColumns, currentUser, initialSeq = 
   }, [])
 
   async function handleSwipeComplete(task: TaskWithRelations) {
-    if (swipeActionTaskId || task.status === 'completed' || task.custom_fields?.locked === true || !canMoveTask(task)) return
+    if (swipeActionTaskId || task.status === 'completed' || !canMoveTask(task)) return
     setSwipeActionTaskId(task.id)
     try {
       const result = await runWrite(() => completeTask(task.id, { column_id: task.column_id, status: task.status }))
@@ -587,9 +588,34 @@ export default function KanbanBoard({ initialColumns, currentUser, initialSeq = 
     }
   }
 
+  const [lockingTaskId, setLockingTaskId] = useState<string | null>(null)
+  async function handleToggleLock(task: TaskWithRelations) {
+    if (!isAdmin || lockingTaskId) return
+    const locking = task.custom_fields?.locked !== true
+    setLockingTaskId(task.id)
+    try {
+      const result = await runWrite(() => setTaskLocked(task.id, locking, { version: task.version }))
+      if (!result.success) {
+        reportActionFailure(result, locking ? 'Failed to lock card.' : 'Failed to unlock card.')
+        return
+      }
+      const saved = result.data
+      setColumns(prev => prev.map(column => ({ ...column, tasks: column.tasks.map(item => item.id === task.id ? { ...item, custom_fields: saved.custom_fields, version: saved.version, updated_by: saved.updated_by, updated_at: saved.updated_at } : item) })))
+      toast.success(locking ? 'Card locked' : 'Card unlocked')
+    } finally {
+      setLockingTaskId(null)
+    }
+  }
+
+  function getLockAction(task: TaskWithRelations) {
+    if (!isAdmin) return undefined
+    return { onToggleLock: () => { void handleToggleLock(task) }, busy: lockingTaskId === task.id }
+  }
+
   function getSwipeActions(task: TaskWithRelations) {
     const locked = task.custom_fields?.locked === true
-    const onComplete = !locked && task.status !== 'completed' && canMoveTask(task)
+    // Locked cards can still be marked complete; they just can't be edited or deleted.
+    const onComplete = task.status !== 'completed' && canMoveTask(task)
       ? () => { void handleSwipeComplete(task) }
       : undefined
     const onDelete = !locked && canMoveTask(task)
@@ -712,13 +738,13 @@ export default function KanbanBoard({ initialColumns, currentUser, initialSeq = 
       {totalMatches === 0 ? <div className="my-8 flex min-h-[240px] flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card/50 p-8 text-center"><CheckSquareIcon /><h2 className="mt-4 text-lg font-semibold">{hasFilters ? 'No tasks match these filters' : 'A little breathing room'}</h2><p className="mt-2 max-w-sm text-sm text-muted-foreground">{hasFilters ? 'Try another search or clear your filters to see more work.' : mine ? 'Tasks you create or are assigned to will appear here.' : 'Create a task to get your team’s next job moving.'}</p>{hasFilters ? <button onClick={resetFilters} className="mt-5 min-h-11 rounded-xl bg-primary px-5 text-sm font-medium text-primary-foreground">Clear filters</button> : <Link href="/submit" className="mt-5 min-h-11 rounded-xl bg-primary px-5 py-3 text-sm font-medium text-primary-foreground">Create a task</Link>}</div> : view === 'board' ? <>
         <div className="mb-4 flex gap-2 overflow-x-auto pb-1 sm:hidden">{filteredColumns.map(column => <button key={column.id} onClick={() => setMobileColumnId(column.id)} className={cn('min-h-11 shrink-0 rounded-xl border px-4 text-xs font-semibold', visibleMobileColumnId === column.id ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card')}>{column.name} ({column.tasks.length})</button>)}</div>
         <div className="min-h-[350px] flex-1 overflow-x-auto pb-5 lg:h-[calc(100dvh-280px)] lg:flex-none board-scroll"><DndContext sensors={isMobile ? [] : sensors} collisionDetection={collisionDetectionStrategy} onDragStart={isMobile ? undefined : handleDragStart} onDragEnd={isMobile ? undefined : handleDragEnd} onDragCancel={handleDragCancel}>
-          {isMobile ? <div className="flex h-full">{filteredColumns.filter(column => column.id === visibleMobileColumnId).map(column => <BoardColumn key={column.id} column={column} currentUser={currentUser} onTaskClick={handleTaskClick} presenceByTask={presenceByTask} getSwipeActions={getSwipeActions} />)}</div> :
-          <div className="flex h-full min-w-max gap-4 xl:min-w-0">{filteredColumns.map(column => <BoardColumn key={column.id} column={column} currentUser={currentUser} onTaskClick={handleTaskClick} presenceByTask={presenceByTask} />)}</div>}
+          {isMobile ? <div className="flex h-full">{filteredColumns.filter(column => column.id === visibleMobileColumnId).map(column => <BoardColumn key={column.id} column={column} currentUser={currentUser} onTaskClick={handleTaskClick} presenceByTask={presenceByTask} getSwipeActions={getSwipeActions} getLockAction={getLockAction} />)}</div> :
+          <div className="flex h-full min-w-max gap-4 xl:min-w-0">{filteredColumns.map(column => <BoardColumn key={column.id} column={column} currentUser={currentUser} onTaskClick={handleTaskClick} presenceByTask={presenceByTask} getLockAction={getLockAction} />)}</div>}
           <DragOverlay dropAnimation={{ duration: 150, easing: 'ease-out' }}>{!isMobile && activeTask && <TaskCard task={activeTask} currentUser={currentUser} isDragging />}</DragOverlay>
         </DndContext></div>
-      </> : view === 'calendar' ? <div className="space-y-5 pb-6">{Array.from(calendarGroups, ([day, tasks]) => <section key={day || 'undated'} className="rounded-2xl border border-border bg-card p-4 sm:p-5"><h2 className="mb-4 flex items-center gap-2 text-sm font-semibold"><CalendarDays size={17} className="text-primary" />{day ? `${day === today ? 'Today · ' : ''}${new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' }).format(new Date(`${day}T12:00:00Z`))}` : 'No due date'}<span className="ml-auto text-xs font-normal text-muted-foreground">{tasks.length} task{tasks.length === 1 ? '' : 's'}</span></h2><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{tasks.map(task => <TaskCard key={task.id} task={task} currentUser={currentUser} draggable={false} onClick={() => handleTaskClick(task)} swipeActions={isMobile ? getSwipeActions(task) : undefined} />)}</div></section>)}</div> : <>
-        <div className="space-y-3 pb-5 sm:hidden">{visibleTasks.map(task => <TaskCard key={task.id} task={task} currentUser={currentUser} draggable={false} onClick={() => handleTaskClick(task)} swipeActions={getSwipeActions(task)} />)}</div>
-        <div className="mb-6 hidden overflow-hidden rounded-2xl border border-border bg-card sm:block"><div className="grid grid-cols-[minmax(0,1fr)_130px_150px_100px] gap-4 border-b border-border bg-muted/30 px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"><span>Task</span><span>Assignee</span><span>Due date</span><span>Priority</span></div>{visibleTasks.map(task => <button key={task.id} onClick={() => handleTaskClick(task)} className="grid min-h-[78px] w-full grid-cols-[minmax(0,1fr)_130px_150px_100px] items-center gap-4 border-b border-border/60 px-5 py-4 text-left last:border-0 hover:bg-accent/25"><span className="min-w-0"><span className="flex items-center gap-2 truncate text-sm font-semibold">{task.unopened && <span aria-label="Not opened yet" className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-primary" />}<span className="truncate">{task.title}</span></span><span className="mt-1 block text-xs text-muted-foreground">{task.column.name}</span></span><span className="flex min-w-0 items-center gap-2 text-xs">{task.assigned_to_profile ? <><Avatar user={task.assigned_to_profile} size="sm" /><span className="truncate">{getUserDisplayName(task.assigned_to_profile)}</span></> : 'Unassigned'}</span><span className={cn('text-xs', taskIsOverdue(task, today) ? 'font-medium text-amber-700 dark:text-amber-400' : 'text-muted-foreground')}>{task.status === 'completed' ? 'Completed' : `${taskIsOverdue(task, today) ? 'Overdue · ' : ''}${taskDueLabel(task, today)}`}</span><span className={`priority-${task.priority} w-fit rounded-md px-2 py-1 text-[10px] capitalize`}>{task.priority}</span></button>)}</div>
+      </> : view === 'calendar' ? <div className="space-y-5 pb-6">{Array.from(calendarGroups, ([day, tasks]) => <section key={day || 'undated'} className="rounded-2xl border border-border bg-card p-4 sm:p-5"><h2 className="mb-4 flex items-center gap-2 text-sm font-semibold"><CalendarDays size={17} className="text-primary" />{day ? `${day === today ? 'Today · ' : ''}${new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' }).format(new Date(`${day}T12:00:00Z`))}` : 'No due date'}<span className="ml-auto text-xs font-normal text-muted-foreground">{tasks.length} task{tasks.length === 1 ? '' : 's'}</span></h2><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{tasks.map(task => <TaskCard key={task.id} task={task} currentUser={currentUser} draggable={false} onClick={() => handleTaskClick(task)} swipeActions={isMobile ? getSwipeActions(task) : undefined} onToggleLock={getLockAction(task)?.onToggleLock} lockBusy={lockingTaskId === task.id} />)}</div></section>)}</div> : <>
+        <div className="space-y-3 pb-5 sm:hidden">{visibleTasks.map(task => <TaskCard key={task.id} task={task} currentUser={currentUser} draggable={false} onClick={() => handleTaskClick(task)} swipeActions={getSwipeActions(task)} onToggleLock={getLockAction(task)?.onToggleLock} lockBusy={lockingTaskId === task.id} />)}</div>
+        <div className="mb-6 hidden overflow-hidden rounded-2xl border border-border bg-card sm:block"><div className="grid grid-cols-[minmax(0,1fr)_130px_150px_100px] gap-4 border-b border-border bg-muted/30 px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"><span>Task</span><span>Assignee</span><span>Due date</span><span>Priority</span></div>{visibleTasks.map(task => <button key={task.id} onClick={() => handleTaskClick(task)} className="grid min-h-[78px] w-full grid-cols-[minmax(0,1fr)_130px_150px_100px] items-center gap-4 border-b border-border/60 px-5 py-4 text-left last:border-0 hover:bg-accent/25"><span className="min-w-0"><span className="flex items-center gap-2 truncate text-sm font-semibold">{task.fresh && <span aria-label={task.fresh === 'new' ? 'New' : 'Updated'} className={cn('h-2 w-2 shrink-0 animate-pulse rounded-full', task.fresh === 'new' ? 'bg-primary' : 'bg-amber-500')} />}<span className="truncate">{task.title}</span></span><span className="mt-1 block text-xs text-muted-foreground">{task.column.name}</span></span><span className="flex min-w-0 items-center gap-2 text-xs">{task.assigned_to_profile ? <><Avatar user={task.assigned_to_profile} size="sm" /><span className="truncate">{getUserDisplayName(task.assigned_to_profile)}</span></> : 'Unassigned'}</span><span className={cn('text-xs', taskIsOverdue(task, today) ? 'font-medium text-amber-700 dark:text-amber-400' : 'text-muted-foreground')}>{task.status === 'completed' ? 'Completed' : `${taskIsOverdue(task, today) ? 'Overdue · ' : ''}${taskDueLabel(task, today)}`}</span><span className={`priority-${task.priority} w-fit rounded-md px-2 py-1 text-[10px] capitalize`}>{task.priority}</span></button>)}</div>
       </>}
       <footer className="mt-auto flex items-center gap-2 border-t border-border/60 py-4 text-[11px] text-muted-foreground"><CheckCircle2 size={14} className="text-emerald-600" />{isPending ? 'Saving move…' : 'Open a task for details, files, and updates.'}</footer>
       {selectedTask && <TaskDetailPanel task={selectedTask} currentUser={currentUser} columns={columns.map(({ tasks: _tasks, ...column }) => column)} onClose={() => { setSelectedTask(null); router.replace(dashboardUrl(), { scroll: false }) }} onUpdate={handleTaskUpdate} onRemove={handleTaskRemove} onMove={handleTaskMove} presence={presenceByTask.get(selectedTask.id) ?? []} runWrite={runWrite} onRefresh={refreshBoard} />}
