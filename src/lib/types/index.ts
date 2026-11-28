@@ -207,6 +207,13 @@ export interface TaskWithRelations extends Task {
   attachments: Attachment[]
   _comment_count: number
   _attachment_count: number
+  /**
+   * For the viewer: 'new' = someone else created it and you haven't opened it;
+   * 'updated' = someone else changed it or commented since you last opened it.
+   */
+  fresh?: 'new' | 'updated' | null
+  /** Latest change by someone other than the viewer (ISO time). */
+  fresh_at?: string | null
 }
 
 export interface CommentWithAuthor extends Comment {

@@ -122,7 +122,7 @@ function loadTs(file, dependencies = {}) {
   }).outputText
   vm.runInNewContext(source, { exports, process, console, Buffer, require(name) {
     if (name === '@/lib/collab') return loadTs('src/lib/collab.ts', dependencies)
-    if (name === '@/lib/notifications') return { notifyAssigned() {}, notifyCompleted() {} }
+    if (name === '@/lib/notifications' && !Object.hasOwn(dependencies, name)) return { notifyAssigned() {}, notifyCompleted() {}, getTaskViewTimes() { return new Map() } }
     return Object.hasOwn(dependencies, name) ? dependencies[name] : require(name)
   } })
   return exports
@@ -181,6 +181,73 @@ test('staff board excludes unrelated tasks and internal notes; edits preserve as
   assert.equal(saved.custom_fields.address, 'new')
   assert.equal(saved.custom_fields.share_token, 'secret')
   assert.deepEqual(Array.from(saved.custom_fields.assigned_user_ids), ['other'])
+})
+
+test('staff can delete their own cards but not other people\'s; new and changed cards float to the top', async () => {
+  const t = (day) => `2026-01-0${day}T00:00:00.000Z`
+  const own = { id: 'own', board_id: 'board', column_id: 'inbox', status: 'new', position: 1, submitted_by: 'staff', updated_by: 'staff', assigned_to: null, custom_fields: {}, created_at: t(1), updated_at: t(1) }
+  const other = { ...own, id: 'other', submitted_by: 'boss', updated_by: 'boss' }
+  const fresh = { ...own, id: 'fresh', position: 2, submitted_by: 'boss', updated_by: 'boss', assigned_to: 'staff', created_at: t(3), updated_at: t(3) }
+  const changed = { ...own, id: 'changed', position: 3, submitted_by: 'boss', updated_by: 'boss', assigned_to: 'staff', updated_at: t(4) }
+  const tasks = { own, other, fresh, changed }
+  const deleted = []
+  const actions = loadTs('src/lib/actions/tasks.ts', {
+    'next/cache': { revalidatePath() {} },
+    '@/lib/category-access': { canSeeCategory: async () => true, canSeeTask: async () => true },
+    '@/lib/auth': { requireRole: async () => ({ id: 'staff', role: 'staff', email: 'staff@example.com' }) },
+    '@/lib/local-data': {
+      DEFAULT_BOARD_ID: 'board',
+      getActiveColumns: async () => [{ id: 'inbox', board_id: 'board' }],
+      getActiveTasks: async () => [own, fresh, changed],
+      getTaskComments: async () => [],
+      getTaskAttachments: async () => [],
+      findUser: () => null,
+      getTaskById: async (id) => tasks[id],
+      softDeleteTask: async (id) => { deleted.push(id); return true },
+      createActivityLog: async () => {},
+      recordBoardEvent: () => {},
+    },
+    '@/lib/notifications': { notifyAssigned() {}, notifyCompleted() {}, getTaskViewTimes: () => new Map([['own', '2026-01-02T00:00:00.000Z'], ['changed', '2026-01-02T00:00:00.000Z']]) },
+    './email': {},
+    '@/lib/integrations/google-calendar': { deleteGoogleCalendarEvent: async () => ({ status: 'skipped' }) },
+    '@/lib/utils': { getAssignedUserIds: () => [], isTaskAssignedToUser: (task, id) => task.assigned_to === id },
+  })
+  assert.equal((await actions.deleteTask('other')).success, false)
+  assert.deepEqual(deleted, [])
+  assert.equal((await actions.deleteTask('own')).success, true)
+  assert.deepEqual(deleted, ['own'])
+
+  const board = await actions.getBoardData()
+  // New and changed-by-others cards come first, newest change on top; then the usual order.
+  assert.equal(JSON.stringify(board.columns[0].tasks.map((task) => [task.id, task.fresh])), JSON.stringify([['changed', 'updated'], ['fresh', 'new'], ['own', null]]))
+})
+
+test('a locked card can still be completed, but not deleted', async () => {
+  const task = { id: 'locked', board_id: 'board', column_id: 'inbox', status: 'new', submitted_by: 'staff', assigned_to: null, custom_fields: { locked: true } }
+  const actions = loadTs('src/lib/actions/tasks.ts', {
+    'next/cache': { revalidatePath() {} },
+    '@/lib/category-access': { canSeeCategory: async () => true, canSeeTask: async () => true },
+    '@/lib/auth': { requireRole: async () => ({ id: 'staff', role: 'staff', email: 'staff@example.com' }) },
+    '@/lib/local-data': {
+      DEFAULT_BOARD_ID: 'board',
+      getActiveColumns: async () => [{ id: 'inbox', board_id: 'board', name: 'Inbox' }, { id: 'done', board_id: 'board', name: 'Completed' }],
+      getTaskById: async () => task,
+      findUser: () => null,
+      updateTask: async (id, updates, options) => { options?.guard?.(task); return { ...task, ...(typeof updates === 'function' ? updates(task) : updates) } },
+      softDeleteTask: async () => { throw new Error('must not delete') },
+      createActivityLog: async () => {},
+      recordBoardEvent: () => {},
+    },
+    '@/lib/notifications': { notifyAssigned() {}, notifyCompleted() {}, getTaskViewTimes: () => new Map() },
+    './email': { sendTaskCompletedEmail: async () => {} },
+    '@/lib/integrations/google-calendar': { upsertGoogleCalendarEvent: async () => ({ status: 'skipped' }), deleteGoogleCalendarEvent: async () => ({ status: 'skipped' }) },
+    '@/lib/utils': { getAssignedUserIds: () => [], isTaskAssignedToUser: () => false },
+  })
+  const completed = await actions.completeTask('locked')
+  assert.equal(completed.success, true, completed.error)
+  assert.equal(completed.data.status, 'completed')
+  assert.equal(completed.data.custom_fields.locked, true)
+  assert.equal((await actions.deleteTask('locked')).success, false)
 })
 
 test('backup captures committed WAL data and private uploads and restores independently', async () => {

@@ -12,6 +12,8 @@ interface Props {
   onTaskClick: (task: TaskWithRelations) => void
   /** Other people's presence, keyed by task id. */
   presenceByTask?: Map<string, TaskPresence[]>
+  /** Admins only: lock/unlock from the board. */
+  getLockAction?: (task: TaskWithRelations) => { onToggleLock: () => void; busy: boolean } | undefined
   getSwipeActions?: (task: TaskWithRelations) => {
     onComplete?: () => void
     onDelete?: () => void
@@ -19,7 +21,7 @@ interface Props {
   }
 }
 
-export default function BoardColumn({ column, currentUser, onTaskClick, presenceByTask, getSwipeActions }: Props) {
+export default function BoardColumn({ column, currentUser, onTaskClick, presenceByTask, getSwipeActions, getLockAction }: Props) {
   const { setNodeRef, isOver } = useDroppable({ id: column.id })
   const taskIds   = column.tasks.map(t => t.id)
   const taskCount = column.tasks.length
@@ -67,6 +69,8 @@ export default function BoardColumn({ column, currentUser, onTaskClick, presence
                 onClick={() => onTaskClick(task)}
                 presence={presenceByTask?.get(task.id)}
                 swipeActions={getSwipeActions?.(task)}
+                onToggleLock={getLockAction?.(task)?.onToggleLock}
+                lockBusy={getLockAction?.(task)?.busy}
               />
             ))}
           </div>
